@@ -1,0 +1,24 @@
+# ===== 构建缓存 =====
+.wordbook-cache/
+*.log
+
+# ===== Node.js =====
+node_modules/
+package-lock.json
+package.json
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 临时文件 =====
+*.tmp
+*.bak

@@ -1,0 +1,9 @@
+{
+  "name": "国中基础2000词库来源清单",
+  "count": 2074,
+  "source_repo": "https://github.com/deanliao/vocab_tutor",
+  "word_list": "https://raw.githubusercontent.com/deanliao/vocab_tutor/refs/heads/main/data/words2000.json",
+  "meanings": "https://raw.githubusercontent.com/deanliao/vocab_tutor/refs/heads/main/data/meanings.json",
+  "note": "公开项目README标注约2000词；其词表文件实际为2074条（含短语与变化形）。",
+  "etymology_source": "https://www.etymonline.com/cn"
+}
