@@ -112,3 +112,13 @@ body{overflow-x:hidden;overflow-y:auto;min-height:100vh;overscroll-behavior-y:au
 .wheel-letter.hint-revealed{background:#fff2a8!important;border-color:#e0b73f!important;color:#7b5b00!important;box-shadow:0 0 0 4px rgba(224,183,63,.18),0 8px 20px rgba(31,41,55,.13)!important;}
 @keyframes swapPop{0%{transform:translate(-50%,-50%) scale(.88)}55%{transform:translate(-50%,-50%) scale(1.12)}100%{transform:translate(-50%,-50%) scale(1)}}
 .connect-actions{min-height:42px}
+
+
+/* FIX18: adaptive adventure map */
+.adventure-map{height:clamp(520px,72vh,700px);min-height:520px}
+.map-node{width:clamp(54px,6vw,70px);height:clamp(54px,6vw,70px);padding:2px;box-sizing:border-box}
+.node-label{font-size:clamp(8px,1vw,10px);max-width:90px;white-space:normal;line-height:1.1;text-align:center;overflow-wrap:anywhere}
+.node-number{font-size:clamp(16px,1.8vw,20px)}
+.node-stars{font-size:clamp(7px,.8vw,9px)}
+@media(max-width:720px){.adventure-map{height:clamp(560px,72vh,700px);min-height:560px}.map-node{width:clamp(48px,14vw,60px);height:clamp(48px,14vw,60px);border-width:3px}.node-number{font-size:16px}.node-label{font-size:8px;max-width:76px;line-height:1.12;white-space:normal}.node-stars{font-size:7px}.map-deco{font-size:26px}}
+@media(max-width:360px){.adventure-map{height:590px;min-height:590px}.map-node{width:46px;height:46px}.node-number{font-size:15px}.node-label{font-size:7px;max-width:68px}.node-stars{font-size:6px}.map-deco{font-size:22px}}
