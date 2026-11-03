@@ -15,7 +15,7 @@ function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show')
 function fmt(n){return(n>0?'+':'')+n}
 function projectedBalance(seat){return balances[seat]+(state&&state.phase!=='over'?state.scores[seat]:0)}
 function updateBankrollTop(){const e=$('bankroll-display');if(e)e.textContent='你的余额 '+projectedBalance(0)}
-function settleRound(){if(!state||state.phase!=='over'||settledState===state)return;for(let i=0;i<4;i++)balances[i]=Math.max(0,balances[i]+state.scores[i]);saveBankroll();settledState=state}
+function settleRound(){if(!state||state.phase!=='over'||settledState===state)return;for(let i=0;i<4;i++)balances[i]=balances[i]+state.scores[i];saveBankroll();settledState=state}
 function loadSeatBalances(){for(let i=0;i<4;i++){const e=$('score-'+i);if(e)e.textContent='余额 '+projectedBalance(i)+' 分';const side=$('side-score-'+i);if(side)side.textContent=String(projectedBalance(i))}updateBankrollTop()}
 function loadSoundSetting(){try{return localStorage.getItem(SOUND_KEY)!=='off'}catch(_){return true}}
 function syncSoundButton(){const b=$('sound-toggle');if(!b)return;b.textContent=soundEnabled?'声音 开':'声音 关';b.setAttribute('aria-pressed',String(soundEnabled));b.title=soundEnabled?'关闭麻将音效':'开启麻将音效'}
