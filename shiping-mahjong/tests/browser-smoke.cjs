@@ -33,6 +33,11 @@ const {chromium}=require('playwright');
     await page.waitForFunction(()=>document.querySelectorAll('#hand-tiles .tile-face').length===14,null,{timeout:5000});
     assert.deepEqual(pageErrors,[],'页面执行期间不应出现未捕获的JavaScript异常');
     assert.deepEqual(failedRequests,[],'页面资源不应加载失败');
+    assert.deepEqual(consoleErrors,[],'浏览器控制台不应出现资源或脚本错误');
+    const avatarAssets=await page.evaluate(()=>['you','north','west','east'].map(name=>getComputedStyle(document.querySelector('.avatar-'+name)).backgroundImage));
+    assert.ok(avatarAssets.every(url=>url.includes('.svg')),'四家头像都必须使用本地SVG资源');
+    const pageBackground=await page.evaluate(()=>getComputedStyle(document.body).backgroundImage);
+    assert.ok(pageBackground.includes('mahjong-table-bg.svg'),'桌面场景背景必须加载本地SVG资源');
     console.log('Browser smoke passed: page loaded, initial deal, discard click, new game, no page errors.');
   }finally{
     await browser.close();
