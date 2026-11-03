@@ -1,24 +1,101 @@
 <!doctype html>
-<html lang="zh-CN"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#102f25"><meta name="description" content="石屏麻将，浏览器即开即玩。">
-<title>石屏麻将 · 经典四人牌局</title><link rel="stylesheet" href="styles.css"><script defer src="js/core.js"></script><script defer src="js/ui.js"></script>
-</head><body>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#063c28">
+<meta name="description" content="石屏麻将，四人牌桌单机练习版。">
+<title>石屏麻将 · 四人牌桌</title>
+<link rel="stylesheet" href="styles.css">
+<script defer src="js/core.js"></script>
+<script defer src="js/ui.js"></script>
+</head>
+<body>
 <div class="app-shell">
-<header class="topbar"><div class="brand"><div class="brand-mark">石</div><div><div class="brand-title">石屏麻将</div><div class="brand-subtitle">SHIPING MAHJONG · LOCAL TABLE</div></div></div><div class="top-actions"><div class="wall-pill"><span class="pulse-dot"></span><span id="wall-count">牌墙 83</span></div><button class="icon-button" id="rules-open" title="规则设置">⚙</button><button class="new-game-button" id="new-game">新开一局 <span>↗</span></button></div></header>
-<main class="layout"><section class="table-column"><div class="table-frame"><div class="felt"><div class="felt-grain"></div><div class="table-ring"></div><div class="table-stamp"><span>石屏</span><small>MAHJONG</small></div>
-<section class="seat seat-north" id="seat-2"><div class="seat-top"><div class="avatar avatar-north">西</div><div class="seat-meta"><b>西家 · 阿梅</b><span class="seat-score" id="score-2">0 分</span></div><span class="seat-turn" id="turn-2"></span></div><div class="opponent-hand" id="back-2"></div><div class="meld-row" id="meld-2"></div></section>
-<section class="seat seat-west" id="seat-1"><div class="seat-top"><div class="avatar avatar-west">北</div><div class="seat-meta"><b>北家 · 老李</b><span class="seat-score" id="score-1">0 分</span></div><span class="seat-turn" id="turn-1"></span></div><div class="opponent-hand vertical-back" id="back-1"></div><div class="meld-row vertical-meld" id="meld-1"></div></section>
-<section class="seat seat-east" id="seat-3"><div class="seat-top"><div class="avatar avatar-east">东</div><div class="seat-meta"><b>东家 · 小赵</b><span class="seat-score" id="score-3">0 分</span></div><span class="seat-turn" id="turn-3"></span></div><div class="opponent-hand vertical-back" id="back-3"></div><div class="meld-row vertical-meld" id="meld-3"></div></section>
-<div class="center-table"><div class="center-head"><span class="round-label">第 1 局</span><span class="center-divider"></span><span id="turn-label">轮到你出牌</span></div><div class="discard-zone" id="discard-zone"><div class="discard-stack" id="discards-0"></div><div class="discard-stack" id="discards-1"></div><div class="discard-stack" id="discards-2"></div><div class="discard-stack" id="discards-3"></div></div><div class="center-footer"><span class="wind-indicator">庄</span><span id="dealer-label">南家坐庄</span><span>•</span><span id="last-action">发牌完成</span></div></div>
-<section class="seat seat-south" id="seat-0"><div class="seat-top"><div class="avatar avatar-you">南</div><div class="seat-meta"><b>南家 · 你</b><span class="seat-score" id="score-0">0 分</span></div><span class="seat-turn" id="turn-0"></span></div><div class="meld-row meld-own" id="meld-0"></div></section>
-</div></div>
-<div class="hand-panel"><div class="hand-heading"><div><span class="eyebrow">YOUR HAND</span><h2>我的手牌 <span id="hand-count">14 张</span></h2></div><div class="hand-tip" id="hand-tip">点击牌面出牌</div></div><div class="hand-tiles" id="hand-tiles" aria-label="我的手牌"></div><div class="action-bar" id="action-bar"><div class="action-placeholder">轮到你时，操作会显示在这里</div></div></div></section>
-<aside class="side-column"><section class="side-card scoreboard-card"><div class="side-card-head"><div><span class="eyebrow">SCOREBOARD</span><h3>本局积分</h3></div><span class="score-zero">总和 0</span></div><div class="score-list"><div class="score-line"><span class="player-dot dot-you"></span><span>你 · 南家</span><b id="side-score-0">0</b></div><div class="score-line"><span class="player-dot dot-1"></span><span>老李 · 北家</span><b id="side-score-1">0</b></div><div class="score-line"><span class="player-dot dot-2"></span><span>阿梅 · 西家</span><b id="side-score-2">0</b></div><div class="score-line"><span class="player-dot dot-3"></span><span>小赵 · 东家</span><b id="side-score-3">0</b></div></div><div class="score-note">每次结算均按石屏麻将固定分值，四家合计为 0。</div></section>
-<section class="side-card activity-card"><div class="side-card-head"><div><span class="eyebrow">TABLE LOG</span><h3>牌局动态</h3></div><span class="live-label"><i></i> LIVE</span></div><div class="activity-list" id="activity-list"><div class="activity-empty">牌局开始后，出牌和操作会显示在这里。</div></div></section>
-<section class="side-card rule-summary"><span class="eyebrow">SHIPING RULES</span><h3>本桌规则</h3><div class="rule-chips"><span>136 张</span><span>无混儿</span><span>无花牌</span><span>四人局</span></div><p>四副牌加一对将即可胡牌；支持自摸、点炮，以及石屏特色烂牌胡。</p><button class="text-button" id="rules-open-2">查看 / 修改规则 →</button></section></aside></main>
-<footer class="footer"><span>石屏麻将 · 单机练习版</span><span>牌面素材 © 原项目贡献者 / Wikipedia · 玩法规则按本项目规则实现</span></footer></div>
-<div class="modal-backdrop hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title"><div class="modal-card rules-card"><div class="modal-heading"><div><span class="eyebrow">GAME SETTINGS</span><h2 id="rules-title">规则设置</h2></div><button class="close-button" id="rules-close" aria-label="关闭">×</button></div><p class="modal-intro">开关只影响下一局。保存后点击“新开一局”生效。</p>
-<label class="setting-row"><span><b>吃牌</b><small>只能吃上家打出的牌</small></span><input type="checkbox" id="setting-chi" checked><i></i></label><label class="setting-row"><span><b>碰牌</b><small>可碰任意一家打出的牌</small></span><input type="checkbox" id="setting-peng" checked><i></i></label><label class="setting-row"><span><b>杠牌</b><small>明杠、暗杠、补杠，杠后补牌</small></span><input type="checkbox" id="setting-gang" checked><i></i></label><label class="setting-row"><span><b>烂牌胡</b><small>14 张不重复，数牌按 147 / 258 / 369 分组</small></span><input type="checkbox" id="setting-badHu" checked><i></i></label><div class="modal-actions"><button class="secondary-button" id="rules-cancel">取消</button><button class="primary-button" id="rules-save">保存设置</button></div></div></div>
-<div class="modal-backdrop hidden" id="result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title"><div class="modal-card result-card"><div class="result-icon" id="result-icon">和</div><span class="eyebrow">ROUND RESULT</span><h2 id="result-title">本局结束</h2><p id="result-detail">四家积分已经结算。</p><div class="result-scores" id="result-scores"></div><button class="primary-button result-new" id="result-new">再来一局</button></div></div>
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">石</div><div><b>石屏麻将</b><small>四人牌桌 · 单机练习</small></div></div>
+    <div class="top-actions">
+      <div class="top-stat"><span class="lamp"></span><span id="wall-count">牌墙 83</span></div>
+      <button class="icon-button" id="rules-open" title="规则设置" aria-label="规则设置">☰</button>
+      <button class="new-game-button" id="new-game">新开一局</button>
+    </div>
+  </header>
+  <main class="game-stage">
+    <section class="table-frame">
+      <div class="felt">
+        <div class="felt-sheen"></div>
+        <div class="table-logo"><strong>石屏麻将</strong><small>SHIPING MAHJONG</small></div>
+
+        <div class="wall-strip wall-north" aria-hidden="true"></div>
+        <div class="wall-strip wall-south" aria-hidden="true"></div>
+        <div class="wall-strip wall-west" aria-hidden="true"></div>
+        <div class="wall-strip wall-east" aria-hidden="true"></div>
+
+        <section class="seat seat-north" id="seat-2">
+          <div class="seat-top"><div class="avatar avatar-north">梅</div><div class="seat-meta"><b>阿梅</b><span class="seat-score" id="score-2">0</span></div><span class="seat-turn" id="turn-2"></span></div>
+          <div class="opponent-hand" id="back-2"></div>
+          <div class="meld-row" id="meld-2"></div>
+        </section>
+
+        <section class="seat seat-west" id="seat-1">
+          <div class="seat-top"><div class="avatar avatar-west">李</div><div class="seat-meta"><b>老李</b><span class="seat-score" id="score-1">0</span></div><span class="seat-turn" id="turn-1"></span></div>
+          <div class="opponent-hand vertical-back" id="back-1"></div>
+          <div class="meld-row vertical-meld" id="meld-1"></div>
+        </section>
+
+        <section class="seat seat-east" id="seat-3">
+          <div class="seat-top"><div class="avatar avatar-east">赵</div><div class="seat-meta"><b>小赵</b><span class="seat-score" id="score-3">0</span></div><span class="seat-turn" id="turn-3"></span></div>
+          <div class="opponent-hand vertical-back" id="back-3"></div>
+          <div class="meld-row vertical-meld" id="meld-3"></div>
+        </section>
+
+        <div class="center-table">
+          <div class="center-hud">
+            <div class="hud-wind"><span>东</span><span>南</span><span>西</span><span>北</span></div>
+            <div class="hud-clock"><b>15</b><small>秒</small></div>
+            <div class="hud-caption"><span id="round-label">第 1 局</span><i></i><span id="turn-label">轮到你出牌</span></div>
+          </div>
+          <div class="discard-zone" id="discard-zone">
+            <div class="discard-stack discard-north" id="discards-2"></div>
+            <div class="discard-stack discard-west" id="discards-1"></div>
+            <div class="discard-stack discard-east" id="discards-3"></div>
+            <div class="discard-stack discard-south" id="discards-0"></div>
+          </div>
+          <div class="center-footer"><span class="dealer-chip">庄</span><span id="dealer-label">南家坐庄</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
+        </div>
+
+        <section class="seat seat-south" id="seat-0">
+          <div class="seat-top"><div class="avatar avatar-you">你</div><div class="seat-meta"><b>你 · 南家</b><span class="seat-score" id="score-0">0</span></div><span class="seat-turn" id="turn-0"></span></div>
+          <div class="meld-row meld-own" id="meld-0"></div>
+        </section>
+
+        <div class="hand-panel">
+          <div class="hand-heading"><span class="hand-label">我的手牌</span><span id="hand-count">14 张</span><span class="hand-tip" id="hand-tip">点击牌面出牌</span></div>
+          <div class="hand-tiles" id="hand-tiles" aria-label="我的手牌"></div>
+          <div class="action-bar" id="action-bar"><div class="action-placeholder">轮到你时，操作会显示在这里</div></div>
+        </div>
+        <div class="hidden-runtime" aria-hidden="true">
+          <span id="side-score-0">0</span><span id="side-score-1">0</span><span id="side-score-2">0</span><span id="side-score-3">0</span>
+          <div id="activity-list"></div>
+        </div>
+        <button class="table-menu" id="rules-open-2" aria-label="打开规则设置">☰</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-backdrop hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+  <div class="modal-card rules-card"><div class="modal-heading"><div><span class="eyebrow">GAME SETTINGS</span><h2 id="rules-title">规则设置</h2></div><button class="close-button" id="rules-close" aria-label="关闭">×</button></div>
+    <p class="modal-intro">开关只影响下一局。保存后点击“新开一局”生效。</p>
+    <label class="setting-row"><span><b>吃牌</b><small>只能吃上家打出的牌</small></span><input type="checkbox" id="setting-chi" checked><i></i></label>
+    <label class="setting-row"><span><b>碰牌</b><small>可碰任意一家打出的牌</small></span><input type="checkbox" id="setting-peng" checked><i></i></label>
+    <label class="setting-row"><span><b>杠牌</b><small>明杠、暗杠、补杠，杠后补牌</small></span><input type="checkbox" id="setting-gang" checked><i></i></label>
+    <label class="setting-row"><span><b>烂牌胡</b><small>14 张不重复，数牌按 147 / 258 / 369 分组</small></span><input type="checkbox" id="setting-badHu" checked><i></i></label>
+    <div class="modal-actions"><button class="secondary-button" id="rules-cancel">取消</button><button class="primary-button" id="rules-save">保存设置</button></div>
+  </div>
+</div>
+<div class="modal-backdrop hidden" id="result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
+  <div class="modal-card result-card"><div class="result-icon" id="result-icon">和</div><span class="eyebrow">ROUND RESULT</span><h2 id="result-title">本局结束</h2><p id="result-detail">四家积分已经结算。</p><div class="result-scores" id="result-scores"></div><button class="primary-button result-new" id="result-new">再来一局</button></div>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body></html>
