@@ -6,7 +6,7 @@ let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,
 let diceTimer=null,diceInterval=null,settledState=null,balances=loadBankroll(),soundEnabled=loadSoundSetting(),audioReady=false,audioCtx=null;
 
 function loadSettings(){try{return Object.assign({chi:true,peng:true,gang:true,badHu:true},JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}'))}catch(_){return{chi:true,peng:true,gang:true,badHu:true}}}
-function loadBankroll(){try{const a=JSON.parse(localStorage.getItem(BANKROLL_KEY)||'null');if(Array.isArray(a)&&a.length===4&&a.every(x=>Number.isFinite(x)))return a.map(x=>Math.max(0,Math.floor(x)))}catch(_){}return[100,100,100,100]}
+function loadBankroll(){try{const a=JSON.parse(localStorage.getItem(BANKROLL_KEY)||'null');if(Array.isArray(a)&&a.length===4&&a.every(x=>Number.isFinite(x)))return a.map(x=>Math.floor(x))}catch(_){}return[100,100,100,100]}
 function saveBankroll(){try{localStorage.setItem(BANKROLL_KEY,JSON.stringify(balances))}catch(_){}}
 function saveSettings(){settings={chi:$('setting-chi').checked,peng:$('setting-peng').checked,gang:$('setting-gang').checked,badHu:$('setting-badHu').checked};try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings))}catch(_){}toast('规则已保存，新开一局后生效');closeRules()}
 function openRules(){$('setting-chi').checked=!!settings.chi;$('setting-peng').checked=!!settings.peng;$('setting-gang').checked=!!settings.gang;$('setting-badHu').checked=!!settings.badHu;$('rules-modal').classList.remove('hidden')}
