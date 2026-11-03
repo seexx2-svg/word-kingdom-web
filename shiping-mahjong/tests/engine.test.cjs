@@ -112,7 +112,7 @@ test('四家按东南西北顺序轮流出牌，不会跳过北家',()=>{
     assert.equal(g.phase,'discard');
     const seat=g.current;
     C.discardTile(g,seat,C.chooseAiDiscard(g.hands[seat]));
-    assert.equal(g.discards[seat].length,turn===0?1:Math.floor(turn/4)+(seat===0?1:0));
+    assert.equal(g.discards[seat].length,Math.floor(turn/4)+1);
     if(g.phase==='reaction'){
       while(g.pendingClaims[g.claimCursor])C.passClaim(g,g.pendingClaims[g.claimCursor].seat);
       C.drawTile(g,C.nextSeat(seat));
