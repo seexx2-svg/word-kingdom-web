@@ -15,6 +15,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Check JavaScript syntax
+        working-directory: shiping-mahjong
+        run: node --check js/core.js && node --check js/ui.js
       - name: Run rule-engine and gameplay tests
         working-directory: shiping-mahjong
         run: npm test
