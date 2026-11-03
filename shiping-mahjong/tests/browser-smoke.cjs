@@ -1,8 +1,19 @@
 const assert=require('node:assert/strict');
 const {chromium}=require('playwright');
 
-async function waitForUserTurn(page,timeout=25000){
-  await page.waitForFunction(()=>document.querySelectorAll('#hand-tiles .tile-face.playable').length>0,{timeout});
+async function waitForUserTurn(page,timeout=30000){
+  const started=Date.now();
+  while(Date.now()-started<timeout){
+    if(await page.locator('#hand-tiles .tile-face.playable').count()>0)return;
+    const pass=page.locator('#action-bar .action-pass');
+    if(await pass.count()){
+      await pass.click();
+      await page.waitForTimeout(60);
+      continue;
+    }
+    await page.waitForTimeout(100);
+  }
+  throw new Error('等待用户操作超时：没有进入出牌阶段，也没有可处理的过牌按钮');
 }
 (async()=>{
   const browser=await chromium.launch({headless:true});
