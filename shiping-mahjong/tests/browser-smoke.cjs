@@ -61,7 +61,12 @@ async function waitForUserTurn(page,timeout=25000){
     await page.locator('#hand-tiles .tile-face.playable').first().click();
     await page.waitForFunction(()=>document.querySelectorAll('#hand-tiles .tile-face').length===13,{timeout:5000});
     assert.equal(await page.locator('#hand-tiles .tile-face').count(),13,'出牌后手牌应减少到13张');
-    await page.waitForFunction(()=>document.querySelectorAll('#discards-1 .tile-face').length>0,{timeout:12000});
+    for(let attempt=0;attempt<120;attempt++){
+      if(await page.locator('#discards-1 .tile-face').count()>0)break;
+      const pass=page.locator('#action-bar .action-pass');
+      if(await pass.count())await pass.click();
+      else await page.waitForTimeout(100);
+    }
     assert.ok(await page.locator('#discards-1 .tile-face').count()>0,'北家必须按轮转规则实际打出弃牌');
 
     await page.locator('#new-game').click();
