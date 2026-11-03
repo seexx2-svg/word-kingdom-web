@@ -257,3 +257,169 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 }
 .sound-toggle[aria-pressed="false"]{background:#3a3b32;color:#bdb8a5;border-color:#9d9270}
 @media(max-width:900px){.sound-toggle{height:29px;min-width:56px;padding:0 8px;font-size:9px}}
+
+/* Premium CC0 SVG faces, thicker porcelain bevel and separated drawn tile */
+.tile-face{
+  background-color:#fffdf5!important;
+  background-size:100% 100%!important;
+  border:1px solid #c8c0ac;
+  border-radius:5px;
+  box-shadow:0 2px 2px #00150c99,0 4px 0 #b9b4a5,0 5px 4px #00140b77;
+  overflow:visible;
+}
+.tile-face:before{
+  content:"";position:absolute;inset:1px;border-radius:4px;
+  border:1px solid #ffffff90;pointer-events:none;z-index:1;
+}
+.tile-face:after{
+  content:"";position:absolute;left:4px;right:3px;bottom:-4px;height:4px;
+  border-radius:0 0 3px 3px;
+  background:linear-gradient(90deg,#a9a18e,#ece7d8 18%,#c1b9a6 80%,#857b67);
+  border-bottom:1px solid #756c5d;pointer-events:none;z-index:-1;
+}
+.hand-tiles .tile-face{
+  box-shadow:0 2px 2px #00150caa,0 4px 0 #b9b4a5,0 6px 6px #00140b88;
+  border-color:#c0b8a5;
+}
+.hand-tiles .tile-face.drawn-tile{
+  margin-left:20px!important;
+  box-shadow:0 3px 3px #00150cbb,0 5px 0 #b9b4a5,0 7px 8px #00140baa,0 0 0 2px #e9c879;
+  transform:translateY(-2px);
+}
+.hand-tiles .tile-face.drawn-tile:focus-visible{outline:2px solid #ffe4a1}
+.tile-back{
+  background-image:url('assets/mahjong/Back.svg')!important;
+  background-size:100% 100%!important;
+  border:1px solid #b6ab83!important;
+  border-radius:4px!important;
+  box-shadow:inset 0 1px 2px #fff8,0 2px 2px #00150caa,0 4px 0 #175c39!important;
+}
+
+/* Four two-layer walls with a visible dice-cut marker */
+.wall-north,.wall-south{
+  display:block!important;width:min(55%,760px);height:20px;left:50%;
+  transform:translateX(-50%);border-radius:4px;
+  background:repeating-linear-gradient(90deg,#72c858 0 29px,#2c873e 30px 32px,#a5e47e 33px 35px);
+  border:1px solid #205d30;box-shadow:inset 0 2px 2px #e0ffc1,0 3px 4px #00170eaa;
+}
+.wall-north{top:15.5%}
+.wall-south{bottom:18%;opacity:.94}
+.wall-west,.wall-east{
+  display:block!important;width:20px;height:42%;top:28%;
+  border-radius:4px;background:repeating-linear-gradient(180deg,#72c858 0 29px,#2c873e 30px 32px,#a5e47e 33px 35px);
+  border:1px solid #205d30;box-shadow:inset 0 2px 2px #e0ffc1,0 3px 4px #00170eaa;
+}
+.wall-west{left:12%}.wall-east{right:12%}
+.wall-strip.cut-wall{filter:drop-shadow(0 0 7px #ffe29b) drop-shadow(0 0 3px #fff)}
+.wall-strip.cut-wall:after{
+  content:"开牌";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:linear-gradient(#ffdf91,#bb7e31);color:#4d2c13;border:1px solid #fff0bd;
+  font-size:9px;font-weight:900;padding:2px 5px;border-radius:9px;white-space:nowrap;
+  box-shadow:0 1px 4px #00140c;
+}
+.wall-north.cut-wall:after,.wall-south.cut-wall:after{top:-10px}
+.wall-west.cut-wall:after,.wall-east.cut-wall:after{left:-12px;top:50%}
+
+/* Dice animation overlay */
+.dice-overlay{
+  position:absolute;inset:0;z-index:18;display:grid;place-items:center;
+  background:radial-gradient(ellipse at center,#042b1bdc,#00160ee8 75%);
+  backdrop-filter:blur(3px);transition:opacity .25s;
+}
+.dice-overlay.hidden{display:none}
+.dice-card{
+  width:min(360px,86vw);padding:24px 20px 20px;text-align:center;
+  border:1px solid #f0d28c99;border-radius:22px;
+  background:linear-gradient(145deg,#214a37f5,#071f17f8 68%,#503520f4);
+  box-shadow:0 18px 55px #000b,inset 0 0 0 2px #fff1;
+}
+.dice-eyebrow{font-size:9px;letter-spacing:.22em;color:#d7bc81}
+.dice-card h2{font-size:19px;letter-spacing:.08em;color:#f7e5bd;margin:9px 0 18px}
+.dice-pair{display:flex;justify-content:center;gap:20px;perspective:600px}
+.dice-cube{
+  width:66px;height:66px;border-radius:13px;display:grid;grid-template-columns:repeat(3,1fr);
+  grid-template-rows:repeat(3,1fr);gap:3px;padding:8px;
+  background:linear-gradient(145deg,#fffefa,#d5cfbd 68%,#a7a18e);
+  border:1px solid #fff8;box-shadow:inset 0 2px 5px #fff,0 5px 0 #8f866f,0 9px 15px #0008;
+  transform-style:preserve-3d;
+}
+.dice-cube i{display:block;width:10px;height:10px;align-self:center;justify-self:center;border-radius:50%;background:#283b30;opacity:0}
+.dice-cube i.on{opacity:1}
+.dice-cube.rolling{animation:dice-roll .8s cubic-bezier(.15,.8,.2,1) infinite alternate}
+.dice-cube.rolling:nth-child(2){animation-delay:-.32s}
+@keyframes dice-roll{0%{transform:rotateX(0deg) rotateY(0deg) translateY(0)}35%{transform:rotateX(120deg) rotateY(95deg) translateY(-10px)}70%{transform:rotateX(250deg) rotateY(230deg) translateY(2px)}100%{transform:rotateX(360deg) rotateY(360deg) translateY(-5px)}}
+.dice-outcome{margin-top:20px;color:#ffdf96;font-size:18px;font-weight:900;letter-spacing:.07em}
+.dice-subtitle{margin-top:7px;color:#d4c39c;font-size:11px}
+.dealer-mark{
+  margin-left:4px;padding:2px 7px;border-radius:10px;
+  border:1px solid #ffe3a2;background:linear-gradient(#f5d58d,#bd7b2c);
+  color:#563417;font-size:9px;font-weight:900;box-shadow:0 1px 4px #0008;
+}
+.seat.dealer-seat .seat-top{border-color:#ffe3a0;box-shadow:0 0 12px #ffd97888,0 3px 9px #00150e88}
+
+/* Result with the exact winning hand and round/account deltas */
+.result-card{max-height:90vh;overflow:auto}
+.result-winning{margin:13px 0 15px;padding:12px 10px;border-radius:12px;background:#eae3d4;border:1px solid #d6c7a5;color:#364538}
+.result-winning-title{font-size:13px;font-weight:900;color:#7b4e23}
+.result-winning-text{font-size:11px;margin-top:4px;color:#5c695d}
+.result-winning-hand{display:flex;justify-content:center;gap:3px;flex-wrap:wrap;margin-top:10px}
+.result-winning-hand .tile-face{width:24px;height:34px;box-shadow:0 1px 1px #0004,0 2px 0 #c3bcaa}
+.result-winning-hand .tile-face.drawn-tile{margin-left:6px!important}
+.result-score{align-items:center;gap:8px}
+.result-score span{flex:1;text-align:left}
+.result-score b{white-space:nowrap}
+.result-balance{font-size:11px;color:#486b51;white-space:nowrap}
+.reset-bankroll-button{width:100%;margin:0 0 8px;background:#e7dfcc;color:#58624f}
+.bankroll-stat{color:#ffe0a0;font-weight:800}
+
+.tile-w1{background-image:url('assets/mahjong/Man1.svg')!important}
+.tile-w2{background-image:url('assets/mahjong/Man2.svg')!important}
+.tile-w3{background-image:url('assets/mahjong/Man3.svg')!important}
+.tile-w4{background-image:url('assets/mahjong/Man4.svg')!important}
+.tile-w5{background-image:url('assets/mahjong/Man5.svg')!important}
+.tile-w6{background-image:url('assets/mahjong/Man6.svg')!important}
+.tile-w7{background-image:url('assets/mahjong/Man7.svg')!important}
+.tile-w8{background-image:url('assets/mahjong/Man8.svg')!important}
+.tile-w9{background-image:url('assets/mahjong/Man9.svg')!important}
+.tile-b1{background-image:url('assets/mahjong/Pin1.svg')!important}
+.tile-b2{background-image:url('assets/mahjong/Pin2.svg')!important}
+.tile-b3{background-image:url('assets/mahjong/Pin3.svg')!important}
+.tile-b4{background-image:url('assets/mahjong/Pin4.svg')!important}
+.tile-b5{background-image:url('assets/mahjong/Pin5.svg')!important}
+.tile-b6{background-image:url('assets/mahjong/Pin6.svg')!important}
+.tile-b7{background-image:url('assets/mahjong/Pin7.svg')!important}
+.tile-b8{background-image:url('assets/mahjong/Pin8.svg')!important}
+.tile-b9{background-image:url('assets/mahjong/Pin9.svg')!important}
+.tile-t1{background-image:url('assets/mahjong/Sou1.svg')!important}
+.tile-t2{background-image:url('assets/mahjong/Sou2.svg')!important}
+.tile-t3{background-image:url('assets/mahjong/Sou3.svg')!important}
+.tile-t4{background-image:url('assets/mahjong/Sou4.svg')!important}
+.tile-t5{background-image:url('assets/mahjong/Sou5.svg')!important}
+.tile-t6{background-image:url('assets/mahjong/Sou6.svg')!important}
+.tile-t7{background-image:url('assets/mahjong/Sou7.svg')!important}
+.tile-t8{background-image:url('assets/mahjong/Sou8.svg')!important}
+.tile-t9{background-image:url('assets/mahjong/Sou9.svg')!important}
+.tile-z1{background-image:url('assets/mahjong/Ton.svg')!important}
+.tile-z2{background-image:url('assets/mahjong/Nan.svg')!important}
+.tile-z3{background-image:url('assets/mahjong/Shaa.svg')!important}
+.tile-z4{background-image:url('assets/mahjong/Pei.svg')!important}
+.tile-z5{background-image:url('assets/mahjong/Chun.svg')!important}
+.tile-z6{background-image:url('assets/mahjong/Hatsu.svg')!important}
+.tile-z7{background-image:url('assets/mahjong/Haku.svg')!important}
+@media(max-width:900px){
+  .wall-north{top:15%}.wall-south{bottom:17%}
+  .wall-west{left:9%}.wall-east{right:9%}
+  .wall-north,.wall-south{width:min(58%,540px)}
+  .dice-cube{width:56px;height:56px}
+}
+@media(max-width:520px) and (orientation:portrait){
+  .wall-north{top:15%}.wall-south{bottom:18%}
+  .wall-west{left:7%}.wall-east{right:7%}
+  .wall-north,.wall-south{height:14px;width:60%}
+  .wall-west,.wall-east{width:14px;height:40%;top:29%}
+  .dice-card{padding:18px 14px}
+  .dice-card h2{font-size:16px}
+  .dice-cube{width:49px;height:49px;padding:6px}
+  .dice-cube i{width:8px;height:8px}
+  .result-winning-hand .tile-face{width:18px;height:26px}
+}
