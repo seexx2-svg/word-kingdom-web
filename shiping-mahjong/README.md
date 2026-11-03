@@ -20,5 +20,8 @@
 - `js/core.js`：牌库、胡牌判定、操作与计分
 - `js/ui.js`：单机对局与界面交互
 
-## 开源与素材
-本项目代码按 GPL-3.0-or-later 发布。上游项目及牌面素材出处、权利说明见 `THIRD-PARTY-NOTICES.md`。
+## 牌面素材与许可
+牌面 PNG 已复制到 `assets/tiles/`，共 35 张（万、筒、条、字牌和牌背），CSS 使用逐一列明的相对 `url()` 路径，可静态扫描。素材来自 [tiansh/tjmj](https://github.com/tiansh/tjmj)，其原页面注明牌面由 Jerry Crimson Mann 绘制、来源 Wikipedia。各图片的具体许可及再分发条件以对应原始文件页为准，见 `THIRD-PARTY-NOTICES.md`。
+
+## 开源
+本项目代码按 GPL-3.0-or-later 发布。
