@@ -34,6 +34,7 @@ function brute(hand,open=0){
     return false;
   }
   for(let i=0;i<a.length;i++){
+    if(a[i+1]!==a[i])continue;
     if(i&&a[i]===a[i-1])continue;
     const b=a.slice();
     b.splice(b.indexOf(a[i]),1);
