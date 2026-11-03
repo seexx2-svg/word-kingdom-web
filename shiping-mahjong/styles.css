@@ -260,6 +260,7 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 
 /* Premium CC0 SVG faces, thicker porcelain bevel and separated drawn tile */
 .tile-face{
+  isolation:isolate;
   background-color:#fffdf5!important;
   background-size:100% 100%!important;
   border:1px solid #c8c0ac;
