@@ -1,0 +1,19 @@
+name: Shiping Mahjong engine tests
+on:
+  push:
+    branches: [shiping-mahjong]
+    paths:
+      - "shiping-mahjong/**"
+      - ".github/workflows/shiping-mahjong-ci.yml"
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run rule-engine and gameplay tests
+        working-directory: shiping-mahjong
+        run: npm test
