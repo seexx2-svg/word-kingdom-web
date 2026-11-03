@@ -16,6 +16,7 @@
     <div class="brand"><div class="brand-mark">石</div><div><b>石屏麻将</b><small>四人牌桌 · 单机练习</small></div></div>
     <div class="top-actions">
       <div class="top-stat"><span class="lamp"></span><span id="wall-count">牌墙 83</span></div>
+      <button class="sound-toggle" id="sound-toggle" type="button" aria-pressed="true">声音 开</button>
       <button class="icon-button" id="rules-open" title="规则设置" aria-label="规则设置">☰</button>
       <button class="new-game-button" id="new-game">新开一局</button>
     </div>
@@ -37,16 +38,16 @@
           <div class="meld-row" id="meld-1"></div>
         </section>
 
-        <section class="seat seat-west" id="seat-2">
+        <section class="seat seat-west" id="seat-3">
+          <div class="seat-top"><div class="avatar avatar-east">赵</div><div class="seat-meta"><b>东家 · 小赵</b><span class="seat-score" id="score-3">0</span></div><span class="seat-turn" id="turn-3"></span></div>
+          <div class="opponent-hand vertical-back" id="back-3"></div>
+          <div class="meld-row vertical-meld" id="meld-3"></div>
+        </section>
+
+        <section class="seat seat-east" id="seat-2">
           <div class="seat-top"><div class="avatar avatar-west">梅</div><div class="seat-meta"><b>西家 · 阿梅</b><span class="seat-score" id="score-2">0</span></div><span class="seat-turn" id="turn-2"></span></div>
           <div class="opponent-hand vertical-back" id="back-2"></div>
           <div class="meld-row vertical-meld" id="meld-2"></div>
-        </section>
-
-        <section class="seat seat-east" id="seat-3">
-          <div class="seat-top"><div class="avatar avatar-east">赵</div><div class="seat-meta"><b>小赵</b><span class="seat-score" id="score-3">0</span></div><span class="seat-turn" id="turn-3"></span></div>
-          <div class="opponent-hand vertical-back" id="back-3"></div>
-          <div class="meld-row vertical-meld" id="meld-3"></div>
         </section>
 
         <div class="center-table">
@@ -56,9 +57,9 @@
             <div class="hud-caption"><span id="round-label">第 1 局</span><i></i><span id="turn-label">轮到你出牌</span></div>
           </div>
           <div class="discard-zone" id="discard-zone">
-            <div class="discard-stack discard-north" id="discards-2"></div>
-            <div class="discard-stack discard-west" id="discards-1"></div>
-            <div class="discard-stack discard-east" id="discards-3"></div>
+            <div class="discard-stack discard-north" id="discards-1"></div>
+            <div class="discard-stack discard-west" id="discards-3"></div>
+            <div class="discard-stack discard-east" id="discards-2"></div>
             <div class="discard-stack discard-south" id="discards-0"></div>
           </div>
           <div class="center-footer"><span class="dealer-chip">庄</span><span id="dealer-label">南家坐庄</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
