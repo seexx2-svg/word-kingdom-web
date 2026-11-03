@@ -225,3 +225,27 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 .avatar-north{background-image:url("assets/avatars/north.svg")!important}
 .avatar-west{background-image:url("assets/avatars/west.svg")!important}
 .avatar-east{background-image:url("assets/avatars/east.svg")!important}
+
+/* Final alignment refinements after reviewing the rendered screenshot */
+.seat-north{top:2.5%}
+.seat-west{top:15.5%}
+.seat-east{top:15.5%}
+.seat-south{bottom:8.5%}
+.center-table{top:59%}
+.hand-panel{background:transparent}
+.tile-back:after{
+  inset:5px;border:1px solid #d7f7a866;border-radius:3px;
+  background:radial-gradient(ellipse at center, #c8f49a26 0 22%, transparent 24% 100%);
+}
+@media(max-width:900px){
+ .seat-north{top:3%}
+ .seat-west,.seat-east{top:16%}
+ .seat-south{bottom:8%}
+ .center-table{top:58%}
+}
+@media(max-width:520px) and (orientation:portrait){
+ .seat-north{top:3%}
+ .seat-west,.seat-east{top:17%}
+ .seat-south{bottom:7%}
+ .center-table{top:56%}
+}
