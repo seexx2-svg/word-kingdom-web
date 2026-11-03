@@ -1,15 +1,169 @@
-const test=require('node:test'),assert=require('node:assert/strict'),C=require('../js/core.js');
-function seeded(seed){let x=seed>>>0;return()=>{x=(1664525*x+1013904223)>>>0;return x/0x100000000}}
-function randomHand(rng){const c=Array(34).fill(0),h=[];while(h.length<14){const id=Math.floor(rng()*34);if(c[id]<4){c[id]++;h.push(id)}}return h}
-function brute(hand,open=0){if(hand.length!==14-3*open||hand.some(x=>x<0||x>33))return false;const a=hand.slice().sort((x,y)=>x-y);function part(v,n){if(!n)return!v.length;if(!v.length)return false;const x=v[0],cnt=v.filter(y=>y===x).length;let b=v.slice();if(cnt>=3){for(let i=0;i<3;i++)b.splice(b.indexOf(x),1);if(part(b,n-1))return true}if(x<27&&x%9<=6&&v.includes(x+1)&&v.includes(x+2)){b=v.slice();for(const y of[x,x+1,x+2])b.splice(b.indexOf(y),1);if(part(b,n-1))return true}return false}for(let i=0;i<a.length;i++){if(i&&a[i]===a[i-1])continue;const b=a.slice();b.splice(b.indexOf(a[i]),1);b.splice(b.indexOf(a[i]),1);if(part(b,4-open))return true}return false}
-function badOracle(h){if(h.length!==14||new Set(h).size!==14||h.some(x=>x<0||x>33))return false;const groups=[[1,4,7],[2,5,8],[3,6,9]];for(let s=0;s<3;s++){const ranks=h.filter(x=>Math.floor(x/9)===s).map(x=>x%9+1);if(ranks.length&&!groups.some(g=>ranks.every(r=>g.includes(r))))return false}return true}
-test('136张：34种牌各4张',()=>{const d=C.buildDeck();assert.equal(d.length,136);for(let i=0;i<34;i++)assert.equal(d.filter(x=>x===i).length,4)});
-test('发牌：庄家14，其余13，牌墙83',()=>{const g=C.createGame({},seeded(1));assert.deepEqual(g.hands.map(x=>x.length),[14,13,13,13]);assert.equal(g.wall.length,83)});
-test('标准胡牌：4副+1将',()=>{const h=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];assert.equal(C.isStandardHu(h),true);assert.equal(C.isStandardHu(h.slice(1)),false);assert.equal(C.isStandardHu([0,1,2,9,10,11,18,19,20,27,27,27,33,33],1),false)});
-test('开门后按剩余副数判胡',()=>{const h=[0,1,2,9,10,11,27,27,27,33,33];assert.equal(C.isStandardHu(h,1),true);assert.equal(C.isStandardHu(h),false)});
-test('烂牌胡和禁用规则',()=>{const h=[0,3,6,10,13,16,20,23,26,27,28,29,30,31];assert.equal(C.isBadHu(h),true);assert.equal(C.isBadHu([0,1,6,10,13,16,20,23,26,27,28,29,30,31]),false);assert.equal(C.isBadHu([0,0,6,10,13,16,20,23,26,27,28,29,30,31]),false);const g=C.createGame({badHu:false},seeded(8));g.phase='reaction';g.lastDiscard={tile:0,from:3};g.hands[0]=h.slice(1);assert.equal(C.actionsForDiscard(g,0).some(x=>x.type==='hu'),false)});
-test('吃只能同花色顺子',()=>{const o=C.chiOptions([0,1,3,4,8,9],2);assert.ok(o.length>0);assert.ok(o.every(x=>x.meld.length===3&&x.meld[0]<27));assert.deepEqual(C.chiOptions([0,1,27,28,29],27),[])});
-test('杠、自摸、点炮计分均零和',()=>{const g=C.createGame({},seeded(4));C.scoreKong(g,0,'暗杠');assert.deepEqual(g.scores,[3,-1,-1,-1]);assert.ok(C.scoreIsZeroSum(g.scores));const s=C.createGame({},seeded(5));s.hands[0]=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];C.winSelf(s,0);assert.deepEqual(s.scores,[9,-3,-3,-3]);const p=C.createGame({},seeded(6));p.phase='reaction';p.lastDiscard={tile:33,from:0};p.hands[1]=[0,1,2,9,10,11,18,19,20,27,27,27,33];p.discards[0].push(33);C.claimDiscard(p,1,'hu');assert.deepEqual(p.scores,[-2,4,-1,-1]);assert.ok(C.scoreIsZeroSum(p.scores))});
-test('随机30,000手：胡牌算法与独立暴力分组器交叉验证',()=>{const r=seeded(20261031);for(let i=0;i<30000;i++){const h=randomHand(r);assert.equal(C.isStandardHu(h),brute(h),String(i))}});
-test('烂牌规则对随机扰动与独立判定一致',()=>{const groups=[[1,4,7],[2,5,8],[3,6,9]],r=seeded(18);let n=0;for(let k=0;k<6000;k++){const h=[],used=new Set();while(h.length<14){const s=Math.floor(r()*3),g=groups[Math.floor(r()*3)],rank=g[Math.floor(r()*3)],id=s*9+rank-1;if(!used.has(id)){used.add(id);h.push(id)}}while(h.length<14){const id=27+h.length-9;if(!used.has(id)){used.add(id);h.push(id)}}if(h.length!==14)continue;const m=h.slice();const index=Math.floor(r()*h.length),old=m[index];if(old<27){let id;do{id=Math.floor(old/9)*9+Math.floor(r()*9)}while(used.has(id));m[index]=id}assert.equal(C.isBadHu(m),badOracle(m));n++}assert.ok(n>100)});
-test('40局人机模拟：牌数守恒，结算零和',()=>{for(let seed=1;seed<=40;seed++){const g=C.createGame({chi:true,peng:true,gang:true,badHu:true},seeded(seed));let steps=0;while(g.phase!=='over'&&steps++<2500){if(g.phase==='discard'){const s=g.current,o=C.selfActions(g,s);if(o.hu)C.winSelf(g,s);else if(o.concealedKongs.length||o.addedKongs.length){const c=o.concealedKongs.length>0,id=c?o.concealedKongs[0]:o.addedKongs[0];C.claimSelfKong(g,s,c?'concealed':'added',id)}else C.discardTile(g,s,C.chooseAiDiscard(g.hands[s]))}else if(g.phase==='reaction'){const c=g.pendingClaims[g.claimCursor];if(c){const a=C.bestAiClaim(c);C.claimDiscard(g,c.seat,a.type,a.optionIndex||0)}else C.drawTile(g,(g.lastDiscard.from+1)%4)}assert.ok(C.scoreIsZeroSum(g.scores));if(g.phase!=='over'){const count=g.wall.length+g.hands.flat().length+g.discards.flat().length+g.melds.flat().reduce((n,m)=>n+m.tiles.length,0);assert.equal(count,136)}}assert.equal(g.phase,'over');assert.ok(C.scoreIsZeroSum(g.scores))}});
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const C=require('../js/core.js');
+
+function seeded(seed){
+  let x=seed>>>0;
+  return()=>{x=(1664525*x+1013904223)>>>0;return x/0x100000000};
+}
+function randomHand(rng){
+  const c=Array(34).fill(0),h=[];
+  while(h.length<14){
+    const id=Math.floor(rng()*34);
+    if(c[id]<4){c[id]++;h.push(id)}
+  }
+  return h;
+}
+function brute(hand,open=0){
+  if(hand.length!==14-3*open||hand.some(x=>x<0||x>33))return false;
+  const a=hand.slice().sort((x,y)=>x-y);
+  function part(v,n){
+    if(!n)return!v.length;
+    if(!v.length)return false;
+    const x=v[0],cnt=v.filter(y=>y===x).length;
+    let b=v.slice();
+    if(cnt>=3){
+      for(let i=0;i<3;i++)b.splice(b.indexOf(x),1);
+      if(part(b,n-1))return true;
+    }
+    if(x<27&&x%9<=6&&v.includes(x+1)&&v.includes(x+2)){
+      b=v.slice();
+      for(const y of[x,x+1,x+2])b.splice(b.indexOf(y),1);
+      if(part(b,n-1))return true;
+    }
+    return false;
+  }
+  for(let i=0;i<a.length;i++){
+    if(i&&a[i]===a[i-1])continue;
+    const b=a.slice();
+    b.splice(b.indexOf(a[i]),1);
+    b.splice(b.indexOf(a[i]),1);
+    if(part(b,4-open))return true;
+  }
+  return false;
+}
+function badOracle(h){
+  if(h.length!==14||new Set(h).size!==14||h.some(x=>x<0||x>33))return false;
+  const groups=[[1,4,7],[2,5,8],[3,6,9]];
+  for(let s=0;s<3;s++){
+    const ranks=h.filter(x=>Math.floor(x/9)===s).map(x=>x%9+1);
+    if(ranks.length&&!groups.some(g=>ranks.every(r=>g.includes(r))))return false;
+  }
+  return true;
+}
+function randomBadHand(rng){
+  const groups=[[1,4,7],[2,5,8],[3,6,9]],h=[],used=new Set();
+  const numberCount=8+Math.floor(rng()*7);
+  while(h.length<numberCount){
+    const suit=Math.floor(rng()*3),group=groups[Math.floor(rng()*3)];
+    const rank=group[Math.floor(rng()*3)],id=suit*9+rank-1;
+    if(!used.has(id)){used.add(id);h.push(id)}
+  }
+  while(h.length<14){
+    const id=27+Math.floor(rng()*7);
+    if(!used.has(id)){used.add(id);h.push(id)}
+  }
+  return{hand:h,used};
+}
+
+test('136张：34种牌各4张',()=>{
+  const d=C.buildDeck();
+  assert.equal(d.length,136);
+  for(let i=0;i<34;i++)assert.equal(d.filter(x=>x===i).length,4);
+});
+test('发牌：庄家14，其余13，牌墙83',()=>{
+  const g=C.createGame({},seeded(1));
+  assert.deepEqual(g.hands.map(x=>x.length),[14,13,13,13]);
+  assert.equal(g.wall.length,83);
+});
+test('标准胡牌：4副+1将',()=>{
+  const h=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];
+  assert.equal(C.isStandardHu(h),true);
+  assert.equal(C.isStandardHu(h.slice(1)),false);
+});
+test('开门后按剩余副数判胡',()=>{
+  const h=[0,1,2,9,10,11,27,27,27,33,33];
+  assert.equal(C.isStandardHu(h,1),true);
+  assert.equal(C.isStandardHu(h),false);
+});
+test('烂牌胡和禁用规则',()=>{
+  const h=[0,3,6,10,13,16,20,23,26,27,28,29,30,31];
+  assert.equal(C.isBadHu(h),true);
+  assert.equal(C.isBadHu([0,1,6,10,13,16,20,23,26,27,28,29,30,31]),false);
+  assert.equal(C.isBadHu([0,0,6,10,13,16,20,23,26,27,28,29,30,31]),false);
+  const g=C.createGame({badHu:false},seeded(8));
+  g.phase='reaction';g.lastDiscard={tile:0,from:3};g.hands[0]=h.slice(1);
+  assert.equal(C.actionsForDiscard(g,0).some(x=>x.type==='hu'),false);
+});
+test('吃只能同花色顺子',()=>{
+  const o=C.chiOptions([0,1,3,4,8,9],2);
+  assert.ok(o.length>0);
+  assert.ok(o.every(x=>x.meld.length===3&&x.meld[0]<27));
+  assert.deepEqual(C.chiOptions([0,1,27,28,29],27),[]);
+});
+test('杠、自摸、点炮计分均零和',()=>{
+  const g=C.createGame({},seeded(4));
+  C.scoreKong(g,0,'暗杠');
+  assert.deepEqual(g.scores,[3,-1,-1,-1]);
+  assert.ok(C.scoreIsZeroSum(g.scores));
+  const s=C.createGame({},seeded(5));
+  s.hands[0]=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];
+  C.winSelf(s,0);
+  assert.deepEqual(s.scores,[9,-3,-3,-3]);
+  const p=C.createGame({},seeded(6));
+  p.phase='reaction';p.lastDiscard={tile:33,from:0};
+  p.hands[1]=[0,1,2,9,10,11,18,19,20,27,27,27,33];p.discards[0].push(33);
+  C.claimDiscard(p,1,'hu');
+  assert.deepEqual(p.scores,[-2,4,-1,-1]);
+  assert.ok(C.scoreIsZeroSum(p.scores));
+});
+test('随机30,000手：胡牌算法与独立暴力分组器交叉验证',()=>{
+  const r=seeded(20261031);
+  for(let i=0;i<30000;i++){
+    const h=randomHand(r);
+    assert.equal(C.isStandardHu(h),brute(h),String(i));
+  }
+});
+test('烂牌规则对随机扰动与独立判定一致（含字牌）',()=>{
+  const r=seeded(18);
+  for(let k=0;k<6000;k++){
+    const {hand,used}=randomBadHand(r),m=hand.slice();
+    const index=Math.floor(r()*m.length),old=m[index];
+    used.delete(old);
+    const choices=Array.from({length:34},(_,id)=>id).filter(id=>!used.has(id));
+    m[index]=choices[Math.floor(r()*choices.length)];
+    assert.equal(C.isBadHu(m),badOracle(m),String(k));
+  }
+});
+test('40局人机模拟：牌数守恒，结算零和',()=>{
+  for(let seed=1;seed<=40;seed++){
+    const g=C.createGame({chi:true,peng:true,gang:true,badHu:true},seeded(seed));
+    let steps=0;
+    while(g.phase!=='over'&&steps++<2500){
+      if(g.phase==='discard'){
+        const s=g.current,o=C.selfActions(g,s);
+        if(o.hu)C.winSelf(g,s);
+        else if(o.concealedKongs.length||o.addedKongs.length){
+          const concealed=o.concealedKongs.length>0;
+          const id=concealed?o.concealedKongs[0]:o.addedKongs[0];
+          C.claimSelfKong(g,s,concealed?'concealed':'added',id);
+        }else C.discardTile(g,s,C.chooseAiDiscard(g.hands[s]));
+      }else if(g.phase==='reaction'){
+        const c=g.pendingClaims[g.claimCursor];
+        if(c){
+          const a=C.bestAiClaim(c);
+          assert.ok(a);
+          C.claimDiscard(g,c.seat,a.type,a.optionIndex||0);
+        }else C.drawTile(g,(g.lastDiscard.from+1)%4);
+      }
+      assert.ok(C.scoreIsZeroSum(g.scores));
+      if(g.phase!=='over'){
+        const count=g.wall.length+g.hands.flat().length+g.discards.flat().length+g.melds.flat().reduce((n,m)=>n+m.tiles.length,0);
+        assert.equal(count,136);
+      }
+    }
+    assert.notEqual(g.phase,'running');
+    assert.equal(g.phase,'over');
+    assert.ok(C.scoreIsZeroSum(g.scores));
+  }
+});
