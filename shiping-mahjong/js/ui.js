@@ -1,4 +1,43 @@
 (()=>{'use strict';const C=window.ShipingMahjongCore,$=id=>document.getElementById(id),NAMES=['你','老李','阿梅','小赵'],SEATS=['南家','北家','西家','东家'],KEY='shiping-mahjong-settings-v1';let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[];
+const SOUND_KEY='shiping-mahjong-sound-v1';
+let soundEnabled=loadSoundSetting(),audioReady=false,audioCtx=null;
+function loadSoundSetting(){try{return localStorage.getItem(SOUND_KEY)!=='off'}catch(_){return true}}
+function syncSoundButton(){const b=$('sound-toggle');if(!b)return;b.textContent=soundEnabled?'声音 开':'声音 关';b.setAttribute('aria-pressed',String(soundEnabled));b.title=soundEnabled?'关闭麻将音效':'开启麻将音效'}
+function tone(freq,start,duration,volume,wave='sine'){
+  if(!audioCtx)return;
+  const osc=audioCtx.createOscillator(),gain=audioCtx.createGain(),at=audioCtx.currentTime+start;
+  osc.type=wave;osc.frequency.setValueAtTime(freq,at);
+  gain.gain.setValueAtTime(0.0001,at);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0002,volume),at+0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001,at+duration);
+  osc.connect(gain);gain.connect(audioCtx.destination);osc.start(at);osc.stop(at+duration+0.015);
+}
+function playSound(kind='ui'){
+  if(!soundEnabled||!audioReady)return;
+  const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
+  try{
+    if(!audioCtx)audioCtx=new Audio();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+    const patterns={
+      ui:[[880,0,.045,.018,'sine']],
+      庄:[[420,0,.06,.02,'triangle'],[620,.065,.07,.022,'triangle'],[820,.14,.08,.024,'triangle']],
+      摸:[[690,0,.055,.026,'triangle'],[980,.035,.035,.012,'sine']],
+      出:[[245,0,.075,.045,'triangle'],[720,.012,.025,.012,'sine']],
+      吃:[[420,0,.08,.028,'sine'],[560,.07,.09,.03,'sine']],
+      碰:[[520,0,.07,.032,'triangle'],[760,.065,.1,.032,'triangle']],
+      杠:[[360,0,.1,.035,'triangle'],[520,.09,.11,.035,'triangle'],[760,.18,.13,.035,'triangle']],
+      胡:[[523,0,.12,.035,'sine'],[659,.12,.12,.038,'sine'],[784,.24,.15,.04,'sine'],[1046,.39,.24,.045,'sine']]
+    };
+    (patterns[kind]||patterns.ui).forEach(v=>tone(...v));
+  }catch(_){}
+}
+function toggleSound(){
+  soundEnabled=!soundEnabled;
+  try{localStorage.setItem(SOUND_KEY,soundEnabled?'on':'off')}catch(_){}
+  syncSoundButton();
+  if(soundEnabled){audioReady=true;playSound('ui')}
+}
+
 function loadSettings(){try{return Object.assign({chi:true,peng:true,gang:true,badHu:true},JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(_){return{chi:true,peng:true,gang:true,badHu:true}}}
 function saveSettings(){settings={chi:$('setting-chi').checked,peng:$('setting-peng').checked,gang:$('setting-gang').checked,badHu:$('setting-badHu').checked};try{localStorage.setItem(KEY,JSON.stringify(settings))}catch(_){}toast('规则已保存，新开一局后生效');closeRules()}
 function openRules(){$('setting-chi').checked=!!settings.chi;$('setting-peng').checked=!!settings.peng;$('setting-gang').checked=!!settings.gang;$('setting-badHu').checked=!!settings.badHu;$('rules-modal').classList.remove('hidden')}
@@ -6,7 +45,7 @@ function closeRules(){$('rules-modal').classList.add('hidden')}
 function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.classList.remove('show'),1900)}
 function tileEl(id,cls=''){const e=document.createElement('div');e.className='tile-face tile-'+C.tileCode(id)+(cls?' '+cls:'');e.title=C.tileLabel(id);e.setAttribute('aria-label',C.tileLabel(id));return e}
 function backEl(){const e=document.createElement('div');e.className='tile-back';return e}
-function addLog(txt,mark='•'){activity.unshift({text:txt,marker:mark,time:new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})});activity=activity.slice(0,16);renderLog();const last=$('last-action');if(last)last.textContent=txt}
+function addLog(txt,mark='•'){activity.unshift({text:txt,marker:mark,time:new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})});activity=activity.slice(0,16);renderLog();const last=$('last-action');if(last)last.textContent=txt;playSound(mark)}
 function renderLog(){const b=$('activity-list');b.innerHTML='';if(!activity.length){b.innerHTML='<div class="activity-empty">牌局开始后，出牌和操作会显示在这里。</div>';return}activity.forEach(x=>{const row=document.createElement('div');row.className='activity-item';const m=document.createElement('div');m.className='activity-marker';m.textContent=x.marker;const body=document.createElement('div');body.textContent=x.text;const t=document.createElement('span');t.className='activity-time';t.textContent=x.time;body.appendChild(t);row.append(m,body);b.appendChild(row)})}
 function clearTimer(){if(timer)clearTimeout(timer);timer=null}
 function newGame(){clearTimer();state=C.createGame(settings);waiting=false;activity=[];addLog('洗牌完成，南家坐庄，庄家先摸 14 张牌','庄');$('dealer-label').textContent='南家坐庄';$('turn-label').textContent='轮到你出牌';$('result-modal').classList.add('hidden');render();renderSelfActions()}
@@ -19,7 +58,7 @@ function renderBacks(s){if(s===0)return;const b=$('back-'+s);b.innerHTML='';for(
 function renderMelds(s){const b=$('meld-'+s);b.innerHTML='';state.melds[s].forEach(m=>{const g=document.createElement('div');g.className='meld-group';m.tiles.forEach(id=>g.appendChild(tileEl(id)));b.appendChild(g)})}
 function renderDiscards(s){const b=$('discards-'+s);b.innerHTML='';state.discards[s].forEach(id=>b.appendChild(tileEl(id)))}
 function renderHand(){const b=$('hand-tiles');b.innerHTML='';const turn=state.phase==='discard'&&state.current===0;state.hands[0].forEach((id,i)=>{const e=tileEl(id,turn?'playable':'disabled');if(turn)e.addEventListener('click',()=>discardHuman(i));b.appendChild(e)})}
-function action(label,handler,type){const b=document.createElement('button');b.className='action-button action-'+type;b.textContent=label;b.addEventListener('click',handler);$('action-bar').appendChild(b)}
+function action(label,handler,type){const b=document.createElement('button');b.className='action-button action-'+type;b.textContent=label;b.addEventListener('click',()=>{audioReady=true;playSound('ui');handler()});$('action-bar').appendChild(b)}
 function renderSelfActions(){const b=$('action-bar');b.innerHTML='';if(state.phase!=='discard'||state.current!==0){const n=document.createElement('div');n.className='action-placeholder';n.textContent=state.phase==='over'?'本局已结束':'轮到你时，操作会显示在这里';b.appendChild(n);return}
 const o=C.selfActions(state,0);if(o.hu)action('自摸胡',()=>{try{C.winSelf(state,0);addLog('你自摸胡牌，+9 分','胡');render()}catch(e){toast(e.message)}},'hu');o.concealedKongs.forEach(id=>action('暗杠 '+C.tileLabel(id),()=>doKong('concealed',id),'gang'));o.addedKongs.forEach(id=>action('补杠 '+C.tileLabel(id),()=>doKong('added',id),'gang'));if(!o.hu&&!o.concealedKongs.length&&!o.addedKongs.length){const n=document.createElement('div');n.className='action-info';n.textContent='暂时没有可执行的胡牌或杠牌操作';b.appendChild(n)}const tip=document.createElement('div');tip.className='action-info';tip.textContent='选择一张手牌即可出牌';tip.style.marginLeft='auto';b.appendChild(tip)}
 function doKong(type,id){try{C.claimSelfKong(state,0,type,id);addLog('你'+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分并补牌','杠');render();if(state.phase!=='over')renderSelfActions()}catch(e){toast(e.message)}}
@@ -32,4 +71,4 @@ function continueAfterDiscard(){if(state.phase==='over')return;const from=state.
 function scheduleAi(ms){clearTimer();timer=setTimeout(aiTurn,ms||400)}
 function aiTurn(){clearTimer();if(!state||state.phase!=='discard'||state.current===0)return;const s=state.current,o=C.selfActions(state,s);if(o.hu){C.winSelf(state,s);addLog(NAMES[s]+'自摸胡牌','胡');render();return}if(o.concealedKongs.length||o.addedKongs.length){const type=o.concealedKongs.length?'concealed':'added',id=o.concealedKongs[0]!==undefined?o.concealedKongs[0]:o.addedKongs[0];C.claimSelfKong(state,s,type,id);addLog(NAMES[s]+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分','杠');render();if(state.phase!=='over')scheduleAi(300);return}const ix=C.chooseAiDiscard(state.hands[s]),t=state.hands[s][ix];C.discardTile(state,s,ix);addLog(NAMES[s]+'打出'+C.tileLabel(t),'出');render();processClaims()}
 function showResult(){if(!state.result)return;$('result-icon').textContent=state.result.type==='draw'?'荒':'胡';$('result-title').textContent=state.result.title;$('result-detail').textContent=state.result.detail+(C.scoreIsZeroSum(state.scores)?' · 四家合计 0 分':' · 积分校验异常');const b=$('result-scores');b.innerHTML='';for(let i=0;i<4;i++){const c=document.createElement('div');c.className='result-score';const n=document.createElement('span');n.textContent=NAMES[i]+' · '+SEATS[i];const v=document.createElement('b');v.textContent=(state.scores[i]>0?'+':'')+state.scores[i]+' 分';v.style.color=state.scores[i]>0?'#2e7650':state.scores[i]<0?'#b65349':'#53645a';c.append(n,v);b.appendChild(c)}$('result-modal').classList.remove('hidden')}
-$('rules-open').addEventListener('click',openRules);$('rules-open-2').addEventListener('click',openRules);$('rules-close').addEventListener('click',closeRules);$('rules-cancel').addEventListener('click',closeRules);$('rules-save').addEventListener('click',saveSettings);$('new-game').addEventListener('click',newGame);$('result-new').addEventListener('click',newGame);$('rules-modal').addEventListener('click',e=>{if(e.target===$('rules-modal'))closeRules()});$('result-modal').addEventListener('click',e=>{if(e.target===$('result-modal'))$('result-modal').classList.add('hidden')});newGame()})();
+$('sound-toggle').addEventListener('click',toggleSound);document.addEventListener('pointerdown',()=>{audioReady=true;if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume()},{once:true});$('rules-open').addEventListener('click',()=>{audioReady=true;playSound('ui');openRules()});$('rules-open-2').addEventListener('click',()=>{audioReady=true;playSound('ui');openRules()});$('rules-close').addEventListener('click',closeRules);$('rules-cancel').addEventListener('click',closeRules);$('rules-save').addEventListener('click',saveSettings);$('new-game').addEventListener('click',()=>{audioReady=true;newGame()});$('result-new').addEventListener('click',newGame);$('rules-modal').addEventListener('click',e=>{if(e.target===$('rules-modal'))closeRules()});$('result-modal').addEventListener('click',e=>{if(e.target===$('result-modal'))$('result-modal').classList.add('hidden')});syncSoundButton();newGame()})();
