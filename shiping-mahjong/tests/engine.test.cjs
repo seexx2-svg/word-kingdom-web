@@ -77,6 +77,50 @@ test('发牌：庄家14，其余13，牌墙83',()=>{
   assert.deepEqual(g.hands.map(x=>x.length),[14,13,13,13]);
   assert.equal(g.wall.length,83);
 });
+test('骰子决定庄家与开牌墙位置，庄家拿第14张',()=>{
+  const dice=[6,5],setup=C.diceSetup(dice),g=C.createGame({},seeded(91),setup);
+  assert.equal(setup.sum,11);
+  assert.equal(g.dealer,setup.dealer);
+  assert.equal(g.current,setup.dealer);
+  assert.equal(g.hands[setup.dealer].length,14);
+  for(let seat=0;seat<4;seat++)if(seat!==setup.dealer)assert.equal(g.hands[seat].length,13);
+  assert.equal(g.wall.length,83);
+  assert.equal(g.wallBreak.offset,setup.wallOffset);
+  assert.equal(g.wallBreak.side,setup.wallSide);
+  assert.equal(g.lastDraw.tile,g.hands[setup.dealer].at(-1));
+});
+test('摸到的新牌保持在手牌最右侧，不重新排序',()=>{
+  const g=C.createGame({},seeded(92),{dealer:0,dice:[1,1],wallOffset:0});
+  const drawn=C.drawTile(g,2);
+  assert.equal(g.hands[2].at(-1),drawn);
+  assert.equal(g.lastDraw.tile,drawn);
+});
+test('方位轮转：南→西→北→东→南',()=>{
+  assert.deepEqual([0,2,1,3].map(C.nextSeat),[2,1,3,0]);
+});
+test('只有下一个座位可以吃牌',()=>{
+  const g=C.createGame({chi:true,peng:false,gang:false,badHu:false},seeded(93));
+  g.phase='reaction';g.lastDiscard={tile:2,from:0};
+  g.hands[2]=[0,1,3,4,8,9,10,11,12,13,14,15,16];
+  g.hands[1]=[0,1,3,4,8,9,10,11,12,13,14,15,16];
+  assert.ok(C.actionsForDiscard(g,2).some(x=>x.type==='chi'));
+  assert.equal(C.actionsForDiscard(g,1).some(x=>x.type==='chi'),false);
+});
+test('四家按东南西北顺序轮流出牌，不会跳过北家',()=>{
+  const g=C.createGame({chi:false,peng:false,gang:false,badHu:false},seeded(94),{dealer:0,dice:[1,1],wallOffset:0});
+  for(let turn=0;turn<20;turn++){
+    assert.equal(g.phase,'discard');
+    const seat=g.current;
+    C.discardTile(g,seat,C.chooseAiDiscard(g.hands[seat]));
+    assert.equal(g.discards[seat].length,turn===0?1:Math.floor(turn/4)+(seat===0?1:0));
+    if(g.phase==='reaction'){
+      while(g.pendingClaims[g.claimCursor])C.passClaim(g,g.pendingClaims[g.claimCursor].seat);
+      C.drawTile(g,C.nextSeat(seat));
+    }
+  }
+  for(let seat=0;seat<4;seat++)assert.ok(g.discards[seat].length>=4, 'seat '+seat+' did not discard');
+});
+
 test('标准胡牌：4副+1将',()=>{
   const h=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];
   assert.equal(C.isStandardHu(h),true);
@@ -110,12 +154,12 @@ test('杠、自摸、点炮计分均零和',()=>{
   const s=C.createGame({},seeded(5));
   s.hands[0]=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];
   C.winSelf(s,0);
-  assert.deepEqual(s.scores,[9,-3,-3,-3]);
+  assert.deepEqual(s.scores,[9,-3,-3,-3]);\n  assert.equal(s.result.winType,'自摸');\n  assert.equal(s.result.winningHand.length,14);\n  assert.ok(s.result.winningTile!==null);
   const p=C.createGame({},seeded(6));
   p.phase='reaction';p.lastDiscard={tile:33,from:0};
   p.hands[1]=[0,1,2,9,10,11,18,19,20,27,27,27,33];p.discards[0].push(33);
   C.claimDiscard(p,1,'hu');
-  assert.deepEqual(p.scores,[-2,4,-1,-1]);
+  assert.deepEqual(p.scores,[-2,4,-1,-1]);\n  assert.equal(p.result.winType,'点炮');\n  assert.equal(p.result.winningTile,33);\n  assert.equal(p.result.winningHand.length,14);
   assert.ok(C.scoreIsZeroSum(p.scores));
 });
 test('随机30,000手：胡牌算法与独立暴力分组器交叉验证',()=>{
@@ -155,7 +199,7 @@ test('40局人机模拟：牌数守恒，结算零和',()=>{
           const a=C.bestAiClaim(c);
           assert.ok(a);
           C.claimDiscard(g,c.seat,a.type,a.optionIndex||0);
-        }else C.drawTile(g,(g.lastDiscard.from+1)%4);
+        }else C.drawTile(g,C.nextSeat(g.lastDiscard.from));
       }
       assert.ok(C.scoreIsZeroSum(g.scores));
       if(g.phase!=='over'){
