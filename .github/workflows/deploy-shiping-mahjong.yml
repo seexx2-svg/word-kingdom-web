@@ -1,0 +1,40 @@
+name: Deploy Shiping Mahjong to GitHub Pages
+
+on:
+  push:
+    branches:
+      - shiping-mahjong
+    paths:
+      - "shiping-mahjong/**"
+      - ".github/workflows/deploy-shiping-mahjong.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: shiping-mahjong-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: shiping-mahjong
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: shiping-mahjong
+      - name: Publish website
+        id: deployment
+        uses: actions/deploy-pages@v4
