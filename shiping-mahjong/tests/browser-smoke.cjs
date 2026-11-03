@@ -20,6 +20,8 @@ const {chromium}=require('playwright');
       uiScript:[...document.scripts].map(s=>s.src),
       css:[...document.styleSheets].map(s=>s.href)
     }));
+    const shot=await page.screenshot({type:'jpeg',quality:38,fullPage:false});
+    console.log('SCREENSHOT_JPEG_BASE64 '+shot.toString('base64'));
     console.log('BROWSER DIAGNOSTIC '+JSON.stringify({diagnostic,pageErrors,failedRequests,consoleErrors}));
     assert.equal(diagnostic.coreType,'object','麻将规则核心脚本必须加载');
     assert.equal(diagnostic.tileCount,14,'庄家开局应渲染14张手牌');
