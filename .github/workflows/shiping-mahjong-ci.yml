@@ -1,4 +1,4 @@
-name: Shiping Mahjong engine tests
+name: Shiping Mahjong engine and browser tests
 on:
   push:
     branches: [shiping-mahjong]
@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,3 +18,14 @@ jobs:
       - name: Run rule-engine and gameplay tests
         working-directory: shiping-mahjong
         run: npm test
+      - name: Install Chromium for browser test
+        working-directory: shiping-mahjong
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Start local static server
+        working-directory: shiping-mahjong
+        run: python3 -m http.server 8080 --bind 127.0.0.1 > /tmp/shiping-mahjong-server.log 2>&1 &
+      - name: Test actual browser interaction
+        working-directory: shiping-mahjong
+        run: node tests/browser-smoke.cjs
