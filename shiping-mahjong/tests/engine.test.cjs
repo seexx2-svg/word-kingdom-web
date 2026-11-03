@@ -154,12 +154,18 @@ test('杠、自摸、点炮计分均零和',()=>{
   const s=C.createGame({},seeded(5));
   s.hands[0]=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];
   C.winSelf(s,0);
-  assert.deepEqual(s.scores,[9,-3,-3,-3]);\n  assert.equal(s.result.winType,'自摸');\n  assert.equal(s.result.winningHand.length,14);\n  assert.ok(s.result.winningTile!==null);
+  assert.deepEqual(s.scores,[9,-3,-3,-3]);
+  assert.equal(s.result.winType,'自摸');
+  assert.equal(s.result.winningHand.length,14);
+  assert.ok(s.result.winningTile!==null);
   const p=C.createGame({},seeded(6));
   p.phase='reaction';p.lastDiscard={tile:33,from:0};
   p.hands[1]=[0,1,2,9,10,11,18,19,20,27,27,27,33];p.discards[0].push(33);
   C.claimDiscard(p,1,'hu');
-  assert.deepEqual(p.scores,[-2,4,-1,-1]);\n  assert.equal(p.result.winType,'点炮');\n  assert.equal(p.result.winningTile,33);\n  assert.equal(p.result.winningHand.length,14);
+  assert.deepEqual(p.scores,[-2,4,-1,-1]);
+  assert.equal(p.result.winType,'点炮');
+  assert.equal(p.result.winningTile,33);
+  assert.equal(p.result.winningHand.length,14);
   assert.ok(C.scoreIsZeroSum(p.scores));
 });
 test('随机30,000手：胡牌算法与独立暴力分组器交叉验证',()=>{
