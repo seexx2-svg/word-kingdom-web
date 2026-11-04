@@ -75,6 +75,15 @@ async function waitForUserTurn(page,timeout=30000){
     const felt=await page.locator('.felt').boundingBox();
     assert.ok(Math.abs((hud.x+hud.width/2)-(felt.x+felt.width/2))<12,'中央读秒必须水平居中');
     assert.ok(Math.abs((hud.y+hud.height/2)-(felt.y+felt.height*.48))<55,'中央读秒必须位于牌桌中央附近');
+    const northBack=await page.locator('#back-1').boundingBox();
+    assert.ok(hud.y>northBack.y+northBack.height,'中央读秒不能遮住北家手牌');
+    const leftBack=await page.locator('#back-3').boundingBox();
+    const leftAvatar=await page.locator('#seat-3 .avatar').boundingBox();
+    const rightBack=await page.locator('#back-2').boundingBox();
+    const rightAvatar=await page.locator('#seat-2 .avatar').boundingBox();
+    const overlap=(a,b)=>a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;
+    assert.ok(!overlap(leftBack,leftAvatar),'东家手牌不能挡住东家头像');
+    assert.ok(!overlap(rightBack,rightAvatar),'西家手牌不能挡住西家头像');
 
     const sound=page.locator('#sound-toggle');
     assert.equal(await sound.getAttribute('aria-pressed'),'true','音效默认开启');
