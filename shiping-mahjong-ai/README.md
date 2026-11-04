@@ -2,8 +2,28 @@
 
 这是一个原生 HTML/CSS/JavaScript 网页麻将游戏，无需安装游戏引擎、无构建步骤。
 
+> **本目录是 `ai-mahjong-next` 分支的开发副本**，由 `shiping-mahjong/` 原样复制后继续开发。
+> 原目录 `shiping-mahjong/` 与线上 `gh-pages` 均未被改动。
+> 本次改动要点：回合状态机重构（修卡死）、出牌动画、吃碰杠副露展示、3D 骰子、桌内胡牌结算、四家牌桌布局重排。
+> 详细说明见 [`docs/DEVELOPMENT-REPORT.md`](docs/DEVELOPMENT-REPORT.md)，截图见 `docs/screenshots/`。
+
 ## 运行
-直接打开 `index.html` 即可开始。牌面 PNG 已随项目保存在 `assets/tiles/`，无需访问外部图片 CDN。
+直接双击 `index.html` 也可以开始。牌面素材随项目保存在 `assets/mahjong/`（SVG）与 `assets/tiles/`（PNG），无需访问外部图片 CDN。
+
+推荐用本地服务器运行（调试接口需要 http 环境）：
+
+```bash
+python3 -m http.server 8080     # 或 npm run serve
+# 打开 http://127.0.0.1:8080/
+```
+
+## 测试
+
+```bash
+npm test              # 规则 + 人机模拟（24 条，纯 Node，无需浏览器）
+npm run test:browser  # 真实浏览器测试（需要本机 Chrome/Edge 与 npm i）
+npm run test:all      # 两者都跑
+```
 
 ## 规则
 - 136 张：万、筒、条、东南西北中发白；每张 4 张，无花牌、无混儿。

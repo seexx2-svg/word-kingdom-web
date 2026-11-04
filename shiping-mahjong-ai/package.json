@@ -1,11 +1,16 @@
 {
-  "name": "shiping-mahjong",
-  "version": "0.1.0",
+  "name": "shiping-mahjong-ai",
+  "version": "0.2.0",
   "private": true,
-  "description": "石屏麻将原生网页单机版",
+  "description": "石屏麻将原生网页单机版 · ai-mahjong-next 分支（状态机重构 + 牌桌动画）",
   "license": "GPL-3.0-or-later",
   "scripts": {
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test --test-concurrency=1 tests/engine.test.cjs tests/simulation.test.cjs",
+    "test:browser": "node --test --test-concurrency=1 tests/browser.test.cjs",
+    "test:all": "npm test && npm run test:browser",
     "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.1"
   }
 }
