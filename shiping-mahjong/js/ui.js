@@ -77,20 +77,80 @@ function renderSelfActions(){const b=$('action-bar');b.innerHTML='';if(state.pha
 function doKong(type,id){try{C.claimSelfKong(state,0,type,id);addLog('你'+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分并补牌','杠');render();if(state.phase!=='over')renderSelfActions()}catch(e){toast(e.message)}}
 function discardHuman(i){if(state.phase!=='discard'||state.current!==0)return;const id=state.hands[0][i];C.discardTile(state,0,i);addLog('你打出'+C.tileLabel(id),'出');render();processClaims()}
 function processClaims(){
-  if(state.phase!=='reaction')return;const candidates=state.pendingClaims,c=candidates[state.claimCursor];
-  if(!c){continueAfterDiscard();return}
-  if(c.seat===0){waiting=true;renderClaim(c);$('turn-label').textContent='你可以选择接牌或过';return}
-  const a=C.bestAiClaim(c);if(!a){C.passClaim(state,c.seat);processClaims();return}
-  const tile=state.lastDiscard.tile;C.claimDiscard(state,c.seat,a.type,a.optionIndex||0);
-  addLog(NAMES[c.seat]+(a.type==='hu'?'胡牌':a.type==='gang'?'明杠'+C.tileLabel(tile):a.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),a.type==='hu'?'胡':a.type==='gang'?'杠':a.type==='peng'?'碰':'吃');
-  render();if(state.phase==='over')return;if(state.current===0)renderSelfActions();else scheduleAi(450);
+  if(!state||state.phase!=='reaction')return;
+  let guard=0;
+  while(state.phase==='reaction'&&guard++<8){
+    const c=state.pendingClaims[state.claimCursor];
+    if(!c){continueAfterDiscard();return}
+    if(c.seat===0){waiting=true;renderClaim(c);$('turn-label').textContent='你可以选择接牌或过';return}
+    const a=C.bestAiClaim(c);
+    if(!a){C.passClaim(state,c.seat);continue}
+    const tile=state.lastDiscard.tile;
+    try{
+      C.claimDiscard(state,c.seat,a.type,a.optionIndex||0);
+      addLog(NAMES[c.seat]+(a.type==='hu'?'胡牌':a.type==='gang'?'明杠'+C.tileLabel(tile):a.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),a.type==='hu'?'胡':a.type==='gang'?'杠':a.type==='peng'?'碰':'吃');
+      render();if(state.phase==='over')return;
+      if(state.current===0)renderSelfActions();else scheduleAi(450);
+      return;
+    }catch(error){
+      console.error('AI 接牌处理失败，自动跳过该次接牌：',error);
+      C.passClaim(state,c.seat);
+    }
+  }
+  if(state.phase==='reaction'&&guard>=8){console.error('接牌队列异常，自动恢复');continueAfterDiscard()}
 }
 function renderClaim(c){const b=$('action-bar');b.innerHTML='';const acts=c.actions,t=state.lastDiscard.tile;if(acts.some(x=>x.type==='hu'))action('胡牌',()=>doClaim('hu'),'hu');if(acts.some(x=>x.type==='gang'))action('明杠',()=>doClaim('gang'),'gang');if(acts.some(x=>x.type==='peng'))action('碰',()=>doClaim('peng'),'peng');const chi=acts.find(x=>x.type==='chi');if(chi)chi.options.forEach((o,i)=>action('吃 '+o.meld.map(C.tileLabel).join(' '),()=>doClaim('chi',i),'chi'));action('过',passHuman,'pass');const info=document.createElement('div');info.className='action-info';info.textContent='有人打出 '+C.tileLabel(t);b.prepend(info)}
 function doClaim(type,i){if(!waiting)return;const t=state.lastDiscard.tile;try{C.claimDiscard(state,0,type,i||0);waiting=false;addLog('你'+(type==='hu'?'胡牌':type==='gang'?'明杠'+C.tileLabel(t):type==='peng'?'碰'+C.tileLabel(t):'吃'+C.tileLabel(t)),type==='hu'?'胡':type==='gang'?'杠':type==='peng'?'碰':'吃');render();if(state.phase!=='over'&&state.current===0)renderSelfActions();else if(state.phase!=='over')scheduleAi(450)}catch(e){toast(e.message)}}
 function passHuman(){if(!waiting)return;waiting=false;C.passClaim(state,0);processClaims()}
 function continueAfterDiscard(){if(state.phase==='over')return;const from=state.lastDiscard?state.lastDiscard.from:state.current,next=C.nextSeat(from);if(!C.drawTile(state,next)){render();return}addLog(NAMES[next]+'摸牌','摸');render();if(next===0)renderSelfActions();else scheduleAi(420)}
 function scheduleAi(ms){clearTimer();timer=setTimeout(aiTurn,ms||400)}
-function aiTurn(){clearTimer();if(!state||state.phase!=='discard'||state.current===0)return;const seat=state.current,o=C.selfActions(state,seat);if(o.hu){C.winSelf(state,seat);addLog(NAMES[seat]+'自摸胡牌','胡');render();return}if(o.concealedKongs.length||o.addedKongs.length){const type=o.concealedKongs.length?'concealed':'added',id=o.concealedKongs[0]!==undefined?o.concealedKongs[0]:o.addedKongs[0];C.claimSelfKong(state,seat,type,id);addLog(NAMES[seat]+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分','杠');render();if(state.phase!=='over')scheduleAi(300);return}const index=C.chooseAiDiscard(state.hands[seat]),tile=state.hands[seat][index];C.discardTile(state,seat,index);addLog(NAMES[seat]+'打出'+C.tileLabel(tile),'出');render();processClaims()}
+function recoverAiTurn(error){
+  console.error('AI 回合发生异常，启动自动恢复：',error);
+  try{
+    if(!state||state.phase==='over'){render();return}
+    if(state.phase==='reaction'){
+      const pending=state.pendingClaims[state.claimCursor];
+      if(pending&&pending.seat!==0){C.passClaim(state,pending.seat);processClaims();return}
+      if(!pending){continueAfterDiscard();return}
+      waiting=true;renderClaim(pending);render();return;
+    }
+    if(state.phase==='discard'&&state.current!==0){
+      const seat=state.current,hand=state.hands[seat];
+      if(!hand.length){
+        const next=C.nextSeat(seat);
+        if(C.drawTile(state,next)){addLog(NAMES[next]+'补进下一回合，已自动恢复','摸');render();if(next!==0)scheduleAi(450);else renderSelfActions()}
+        else render();
+        return;
+      }
+      let index=C.chooseAiDiscard(hand);
+      if(!Number.isInteger(index)||index<0||index>=hand.length)index=hand.length-1;
+      const tile=hand[index];C.discardTile(state,seat,index);
+      addLog(NAMES[seat]+'自动打出'+C.tileLabel(tile)+'（恢复操作）','出');
+      render();processClaims();return;
+    }
+    render();
+  }catch(recoveryError){
+    console.error('AI 自动恢复再次失败：',recoveryError);
+    toast('电脑回合异常，已尝试恢复；请点击新开一局');
+    render();
+  }
+}
+function aiTurn(){
+  clearTimer();if(!state||state.phase!=='discard'||state.current===0)return;
+  try{
+    const seat=state.current,hand=state.hands[seat],o=C.selfActions(state,seat);
+    if(o.hu){C.winSelf(state,seat);addLog(NAMES[seat]+'自摸胡牌','胡');render();return}
+    if(o.concealedKongs.length||o.addedKongs.length){
+      const type=o.concealedKongs.length?'concealed':'added',id=o.concealedKongs[0]!==undefined?o.concealedKongs[0]:o.addedKongs[0];
+      C.claimSelfKong(state,seat,type,id);addLog(NAMES[seat]+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分','杠');render();if(state.phase!=='over')scheduleAi(300);return;
+    }
+    let index=C.chooseAiDiscard(hand);
+    if(!Number.isInteger(index)||index<0||index>=hand.length)index=hand.length-1;
+    if(index<0)throw new Error('AI 手牌为空，无法出牌');
+    const tile=hand[index];C.discardTile(state,seat,index);
+    addLog(NAMES[seat]+'打出'+C.tileLabel(tile),'出');render();processClaims();
+  }catch(error){recoverAiTurn(error)}
+}
 function showResult(){
   if(!state.result)return;
   $('result-icon').textContent=state.result.type==='draw'?'荒':'胡';
