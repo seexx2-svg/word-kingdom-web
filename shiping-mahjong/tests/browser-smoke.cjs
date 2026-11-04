@@ -161,8 +161,9 @@ async function waitForUserTurn(page,timeout=30000){
         exposedMeld:layer.querySelectorAll('.result-meld-group .tile-face').length
       };
     });
+    console.log('WIN_LAYOUT '+JSON.stringify(winLayout));
     assert.equal(winLayout.parentIsFelt,true,'胡牌结果必须放在牌桌内部');
-    assert.ok(winLayout.centeredX<12&&winLayout.centeredY<18,'胡牌展示必须居中于牌桌');
+    assert.ok(winLayout.centeredX<12&&winLayout.centeredY<18,'胡牌展示必须居中于牌桌：'+JSON.stringify(winLayout));
     assert.ok(winLayout.layerWidth<winLayout.viewportWidth,'胡牌展示不能铺满整个屏幕');
     assert.match(winLayout.background,/0\.2[0-9]+\)/,'牌桌遮罩应保持半透明');
     assert.equal(winLayout.pointerEvents,'none','结果遮罩本身不能挡住牌桌点击');
