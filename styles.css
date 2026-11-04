@@ -615,3 +615,13 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   .avatar{flex-basis:42px;width:42px;height:42px;font-size:13px}
   .seat-south .avatar{flex-basis:50px;width:50px;height:50px}
 }
+
+/* Keep the enlarged south portrait behind the playable hand surface. */
+.seat-south{
+  z-index:5!important;
+  pointer-events:none!important;
+}
+.hand-panel{
+  z-index:12!important;
+  pointer-events:auto!important;
+}
