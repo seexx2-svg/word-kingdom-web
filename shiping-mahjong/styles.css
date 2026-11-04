@@ -700,3 +700,96 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 /* Fix absolute centring: reset inset first, then set the 50% anchor. */
 .dice-overlay{inset:auto!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important}
 .table-result-layer{inset:auto!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important}
+
+/* True six-sided tabletop dice: rotate the whole cube in 3D, then settle on the rolled face. */
+.dice-cube{
+  position:relative!important;display:block!important;flex:0 0 66px!important;
+  width:66px!important;height:66px!important;padding:0!important;gap:0!important;
+  border:0!important;border-radius:0!important;background:transparent!important;
+  box-shadow:none!important;perspective:520px;transform:none;
+}
+.die-cube3d{
+  position:absolute;inset:0;width:100%;height:100%;
+  transform-style:preserve-3d;
+  transition:transform .52s cubic-bezier(.18,.72,.2,1);
+}
+.die-face{
+  position:absolute;left:0;top:0;width:100%;height:100%;
+  display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);
+  gap:3px;padding:8px;border-radius:12px;
+  background:linear-gradient(145deg,#fffefa 0%,#ece8da 52%,#c7c0ae 100%);
+  border:1px solid #fff;border-bottom:3px solid #9c947f;
+  box-shadow:inset 0 2px 5px #fff,0 2px 4px #554a36aa;
+  backface-visibility:hidden;
+}
+.die-face.die-top{background:linear-gradient(145deg,#fffdf5,#d8d0bd 85%)}
+.die-face i{
+  display:block;align-self:center;justify-self:center;
+  width:10px;height:10px;border-radius:50%;
+  background:radial-gradient(circle at 32% 27%,#58675a,#18271f 72%);
+  opacity:0;box-shadow:inset 0 1px 1px #ffffff55,0 1px 1px #0004;
+}
+.die-face i.on{opacity:1}
+.dice-cube.rolling{animation:die-hop .34s ease-in-out infinite alternate}
+.dice-cube.rolling .die-cube3d{animation:die-tumble .72s linear infinite}
+.dice-cube.rolling:nth-child(2){animation-delay:-.11s}
+.dice-cube.rolling:nth-child(2) .die-cube3d{animation-duration:.61s;animation-direction:reverse}
+.dice-cube:not(.rolling):after{
+  content:"";position:absolute;left:9%;right:9%;bottom:-11px;height:12px;
+  z-index:-1;border-radius:50%;background:#00180e65;filter:blur(5px);
+  animation:die-settle-shadow .52s ease-out both;
+}
+@keyframes die-hop{0%{transform:translateY(3px) rotate(-7deg)}100%{transform:translateY(-12px) rotate(8deg)}}
+@keyframes die-tumble{
+  0%{transform:translateY(0) rotateX(0) rotateY(0) rotateZ(0)}
+  22%{transform:translateY(-5px) rotateX(145deg) rotateY(210deg) rotateZ(50deg)}
+  48%{transform:translateY(2px) rotateX(310deg) rotateY(405deg) rotateZ(135deg)}
+  76%{transform:translateY(-4px) rotateX(510deg) rotateY(620deg) rotateZ(205deg)}
+  100%{transform:translateY(0) rotateX(720deg) rotateY(900deg) rotateZ(360deg)}
+}
+@keyframes die-settle-shadow{0%{transform:scale(.55);opacity:.35}100%{transform:scale(1);opacity:1}}
+.dice-pair{align-items:center;gap:24px}
+.dice-pair:before{
+  content:"";position:absolute;width:190px;height:15px;bottom:-4px;left:50%;
+  transform:translateX(-50%);border-radius:50%;background:#001b1060;filter:blur(11px);
+  pointer-events:none;
+}
+.dice-card{overflow:visible}
+.dice-overlay{background:radial-gradient(ellipse at center,#03271c42,#00150d16 75%,transparent)!important;backdrop-filter:blur(.4px)!important}
+@media(max-width:900px){
+  .dice-cube{width:53px!important;height:53px!important;flex-basis:53px!important}
+  .die-face{gap:2px;padding:6px;border-radius:9px}
+  .die-face i{width:8px;height:8px}
+  .die-cube3d{transform:scale(.8);transform-origin:center}
+}
+@media(max-width:520px){
+  .dice-cube{width:43px!important;height:43px!important;flex-basis:43px!important}
+  .die-face{padding:5px;gap:1px;border-radius:7px;border-bottom-width:2px}
+  .die-face i{width:6px;height:6px}
+  .die-cube3d{transform:scale(.66);transform-origin:center}
+}
+/* Clear visual identity for a claimed chi/peng/kong: label the set and highlight the called tile. */
+.meld-group{position:relative;padding-top:9px}
+.meld-label{
+  position:absolute;left:0;top:-4px;z-index:3;
+  padding:1px 5px;border-radius:7px;
+  color:#f8e4b5;background:linear-gradient(#7a5428,#53371f);
+  border:1px solid #efce8d;font-size:8px;line-height:11px;font-weight:900;
+  white-space:nowrap;box-shadow:0 1px 3px #00150d99;
+}
+.meld-called-tile{
+  outline:2px solid #e4a83e!important;outline-offset:-2px;
+  filter:brightness(1.08) drop-shadow(0 0 3px #ffd77e);
+}
+.vertical-meld .meld-group{padding-top:0;padding-left:11px}
+.vertical-meld .meld-label{
+  left:-7px;top:50%;transform:translateY(-50%) rotate(-90deg);
+  transform-origin:center center;
+  max-width:48px;overflow:visible;
+}
+.result-meld-group .meld-called-tile{outline:2px solid #d99a36!important}
+@media(max-width:900px){
+  .meld-label{font-size:7px;line-height:9px;padding:0 4px}
+  .vertical-meld .meld-group{padding-left:9px}
+  .vertical-meld .meld-label{left:-9px}
+}
