@@ -2,7 +2,7 @@
 const C=window.ShipingMahjongCore,$=id=>document.getElementById(id);
 const NAMES=['你','老李','阿梅','小赵'],SEATS=['南家','北家','西家','东家'];
 const SETTINGS_KEY='shiping-mahjong-settings-v1',SOUND_KEY='shiping-mahjong-sound-v1',BANKROLL_KEY='shiping-mahjong-bankroll-v1';
-let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[],aiWatchdog=null,aiToken=0;
+let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[],aiWatchdog=null,aiToken=0,lastDiscardVisual=null;
 let diceTimer=null,diceInterval=null,settledState=null,balances=loadBankroll(),soundEnabled=loadSoundSetting(),audioReady=false,audioCtx=null;
 
 function loadSettings(){try{return Object.assign({chi:true,peng:true,gang:true,badHu:true},JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}'))}catch(_){return{chi:true,peng:true,gang:true,badHu:true}}}
@@ -24,6 +24,26 @@ function playSound(kind='ui'){if(!soundEnabled||!audioReady)return;const Audio=w
 function toggleSound(){soundEnabled=!soundEnabled;try{localStorage.setItem(SOUND_KEY,soundEnabled?'on':'off')}catch(_){}syncSoundButton();if(soundEnabled){audioReady=true;playSound('ui')}}
 function tileEl(id,cls=''){const e=document.createElement('div');e.className='tile-face tile-'+C.tileCode(id)+(cls?' '+cls:'');e.title=C.tileLabel(id);e.setAttribute('aria-label',C.tileLabel(id));return e}
 function backEl(){const e=document.createElement('div');e.className='tile-back';return e}
+function captureDiscardSource(seat,index){
+  const el=seat===0?$('hand-tiles').children[index]:$('back-'+seat);
+  const source=el||$('seat-'+seat);if(!source)return null;
+  const r=source.getBoundingClientRect();return{left:r.left,top:r.top,width:r.width,height:r.height};
+}
+function afterDiscard(seat,tile,source){
+  lastDiscardVisual={seat,tile,index:state.discards[seat].length-1};
+  const callout=$('discard-callout');
+  if(callout){callout.textContent=SEATS[seat]+' · '+NAMES[seat]+' 打出 '+C.tileLabel(tile);callout.classList.remove('hidden');callout.dataset.seat=String(seat)}
+  render();animateDiscard(seat,tile,source);
+}
+function animateDiscard(seat,tile,source){
+  const target=$('discards-'+seat)?.lastElementChild;if(!target)return;
+  const to=target.getBoundingClientRect(),from=source||captureDiscardSource(seat,-1);if(!from)return;
+  const w=to.width||25,h=to.height||35,sx=from.left+from.width/2-w/2,sy=from.top+from.height/2-h/2,dx=to.left-sx,dy=to.top-sy;
+  const flying=tileEl(tile,'discard-flight');Object.assign(flying.style,{left:sx+'px',top:sy+'px',width:w+'px',height:h+'px'});
+  document.body.appendChild(flying);window.__shipingMahjongLastDiscardFlight={seat,tile,from:{x:sx,y:sy},to:{x:to.left,y:to.top}};
+  if(typeof flying.animate==='function'){const animation=flying.animate([{transform:'translate(0,0) scale(.78)',opacity:.92},{transform:'translate('+dx+'px,'+dy+'px) scale(1)',opacity:1}],{duration:420,easing:'cubic-bezier(.18,.75,.25,1)',fill:'forwards'});animation.onfinish=()=>flying.remove();animation.oncancel=()=>flying.remove()}
+  else setTimeout(()=>flying.remove(),450);
+}
 function addLog(txt,mark='•'){activity.unshift({text:txt,marker:mark,time:new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})});activity=activity.slice(0,16);renderLog();const last=$('last-action');if(last)last.textContent=txt;playSound(mark)}
 function renderLog(){const b=$('activity-list');if(!b)return;b.innerHTML='';if(!activity.length){b.innerHTML='<div class="activity-empty">牌局开始后，出牌和操作会显示在这里。</div>';return}activity.forEach(x=>{const row=document.createElement('div');row.className='activity-item';const m=document.createElement('div');m.className='activity-marker';m.textContent=x.marker;const body=document.createElement('div');body.textContent=x.text;const t=document.createElement('span');t.className='activity-time';t.textContent=x.time;body.appendChild(t);row.append(m,body);b.appendChild(row)})}
 function clearTimer(){if(timer)clearTimeout(timer);timer=null;if(aiWatchdog)clearTimeout(aiWatchdog);aiWatchdog=null;aiToken++}
@@ -50,10 +70,10 @@ function watchdogAiProgress(token){
     if(Number.isInteger(suggested)&&suggested>=0&&suggested<hand.length)index=suggested;
   }catch(error){console.error('AI 选牌异常，使用最后一张牌兜底：',error)}
   try{
-    const tile=hand[index];
+    const source=captureDiscardSource(seat,-1),tile=hand[index];
     C.discardTile(state,seat,index);
     addLog(NAMES[seat]+'超时自动打出'+C.tileLabel(tile),'出');
-    render();processClaims();
+    afterDiscard(seat,tile,source);processClaims();
   }catch(error){recoverAiTurn(error)}
 }
 function scheduleAi(ms){
@@ -70,7 +90,7 @@ function markWallBreak(side){document.querySelectorAll('.wall-strip').forEach(x=
 function markDealer(dealer){for(let i=0;i<4;i++){const seat=$('seat-'+i);if(!seat)continue;seat.classList.toggle('dealer-seat',i===dealer);const top=seat.querySelector('.seat-top');let mark=top.querySelector('.dealer-mark');if(i===dealer&&!mark){mark=document.createElement('span');mark.className='dealer-mark';mark.textContent='庄';top.appendChild(mark)}else if(i!==dealer&&mark)mark.remove()}}
 function newGame(){
   clearTimer();clearTurnClock();if(diceTimer)clearTimeout(diceTimer);if(diceInterval)clearInterval(diceInterval);
-  state=null;waiting=false;activity=[];settledState=null;$('result-modal').classList.add('hidden');
+  state=null;waiting=false;activity=[];settledState=null;lastDiscardVisual=null;$('discard-callout').classList.add('hidden');$('result-modal').classList.add('hidden');
   const dice=[1+Math.floor(Math.random()*6),1+Math.floor(Math.random()*6)],setup=C.diceSetup(dice),overlay=$('dice-overlay');
   overlay.classList.remove('hidden');$('dice-outcome').textContent='正在掷骰…';$('dice-subtitle').textContent='骰子将决定庄家和开牌墙位';
   setDiceFace('dice-one',1);setDiceFace('dice-two',1);$('dice-one').classList.add('rolling');$('dice-two').classList.add('rolling');
@@ -106,12 +126,12 @@ function render(){
 }
 function renderBacks(s){if(s===0)return;const b=$('back-'+s);b.innerHTML='';for(let i=0;i<Math.min(state.hands[s].length,14);i++)b.appendChild(backEl())}
 function renderMelds(s){const b=$('meld-'+s);b.innerHTML='';state.melds[s].forEach(m=>{const g=document.createElement('div');g.className='meld-group';m.tiles.forEach(id=>g.appendChild(tileEl(id)));b.appendChild(g)})}
-function renderDiscards(s){const b=$('discards-'+s);b.innerHTML='';state.discards[s].forEach(id=>b.appendChild(tileEl(id)))}
+function renderDiscards(s){const b=$('discards-'+s);b.innerHTML='';state.discards[s].forEach((id,index)=>{const recent=lastDiscardVisual&&lastDiscardVisual.seat===s&&lastDiscardVisual.index===index&&lastDiscardVisual.tile===id;const e=tileEl(id,recent?'latest-discard':'');if(recent)e.title=SEATS[s]+' '+NAMES[s]+' 打出 '+C.tileLabel(id);b.appendChild(e)})}
 function renderHand(){const b=$('hand-tiles');b.innerHTML='';const turn=state.phase==='discard'&&state.current===0,hand=state.hands[0];hand.forEach((id,i)=>{const drawn=state.lastDraw&&state.lastDraw.seat===0&&i===hand.length-1&&state.lastDraw.tile===id;const e=tileEl(id,(turn?'playable':'disabled')+(drawn?' drawn-tile':''));if(turn)e.addEventListener('click',()=>discardHuman(i));b.appendChild(e)})}
 function action(label,handler,type){const b=document.createElement('button');b.className='action-button action-'+type;b.textContent=label;b.addEventListener('click',()=>{audioReady=true;playSound('ui');handler()});$('action-bar').appendChild(b)}
 function renderSelfActions(){const b=$('action-bar');b.innerHTML='';if(state.phase!=='discard'||state.current!==0){const n=document.createElement('div');n.className='action-placeholder';n.textContent=state.phase==='over'?'本局已结束':'轮到你时，操作会显示在这里';b.appendChild(n);return}const o=C.selfActions(state,0);if(o.hu)action('自摸胡',()=>{try{C.winSelf(state,0);addLog('你自摸胡牌，+9 分','胡');render()}catch(e){toast(e.message)}},'hu');o.concealedKongs.forEach(id=>action('暗杠 '+C.tileLabel(id),()=>doKong('concealed',id),'gang'));o.addedKongs.forEach(id=>action('补杠 '+C.tileLabel(id),()=>doKong('added',id),'gang'));if(!o.hu&&!o.concealedKongs.length&&!o.addedKongs.length){const n=document.createElement('div');n.className='action-info';n.textContent='暂时没有可执行的胡牌或杠牌操作';b.appendChild(n)}const tip=document.createElement('div');tip.className='action-info';tip.textContent='选择一张手牌即可出牌';tip.style.marginLeft='auto';b.appendChild(tip)}
 function doKong(type,id){try{C.claimSelfKong(state,0,type,id);addLog('你'+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分并补牌','杠');render();if(state.phase!=='over')renderSelfActions()}catch(e){toast(e.message)}}
-function discardHuman(i){if(state.phase!=='discard'||state.current!==0)return;const id=state.hands[0][i];C.discardTile(state,0,i);addLog('你打出'+C.tileLabel(id),'出');render();processClaims()}
+function discardHuman(i){if(state.phase!=='discard'||state.current!==0)return;const id=state.hands[0][i],source=captureDiscardSource(0,i);C.discardTile(state,0,i);addLog('你打出'+C.tileLabel(id),'出');afterDiscard(0,id,source);processClaims()}
 function processClaims(){
   if(!state||state.phase!=='reaction')return;
   let guard=0;
@@ -163,9 +183,9 @@ function recoverAiTurn(error){
       }
       let index=C.chooseAiDiscard(hand);
       if(!Number.isInteger(index)||index<0||index>=hand.length)index=hand.length-1;
-      const tile=hand[index];C.discardTile(state,seat,index);
+      const source=captureDiscardSource(seat,-1),tile=hand[index];C.discardTile(state,seat,index);
       addLog(NAMES[seat]+'自动打出'+C.tileLabel(tile)+'（恢复操作）','出');
-      render();processClaims();return;
+      afterDiscard(seat,tile,source);processClaims();return;
     }
     render();
   }catch(recoveryError){
@@ -186,8 +206,8 @@ function aiTurn(token){
     let index=C.chooseAiDiscard(hand);
     if(!Number.isInteger(index)||index<0||index>=hand.length)index=hand.length-1;
     if(index<0)throw new Error('AI 手牌为空，无法出牌');
-    const tile=hand[index];C.discardTile(state,seat,index);
-    addLog(NAMES[seat]+'打出'+C.tileLabel(tile),'出');render();processClaims();
+    const source=captureDiscardSource(seat,-1),tile=hand[index];C.discardTile(state,seat,index);
+    addLog(NAMES[seat]+'打出'+C.tileLabel(tile),'出');afterDiscard(seat,tile,source);processClaims();
   }catch(error){recoverAiTurn(error)}
 }
 function showResult(){
@@ -200,9 +220,21 @@ function showResult(){
     title.textContent=NAMES[result.seat]+' · '+(result.winType||'胡牌')+' · '+(result.winningType||'胡牌');
     const detail=document.createElement('div');detail.className='result-winning-text';
     detail.textContent='胡牌：'+(result.winningTile===null||result.winningTile===undefined?'—':C.tileLabel(result.winningTile))+'；本局 '+fmt(state.scores[result.seat])+' 积分';
+    const meldBlock=document.createElement('div');meldBlock.className='result-melds';
+    const meldLabel=document.createElement('div');meldLabel.className='result-section-label';meldLabel.textContent='已亮副露';
+    const meldList=document.createElement('div');meldList.className='result-meld-list';
+    (state.melds[result.seat]||[]).forEach(meld=>{
+      const group=document.createElement('div');group.className='result-meld-group';
+      const kind=document.createElement('span');kind.className='result-meld-kind';kind.textContent=meld.type==='gang'?'杠':meld.type==='peng'?'碰':'吃';group.appendChild(kind);
+      meld.tiles.forEach(tile=>group.appendChild(tileEl(tile)));
+      meldList.appendChild(group);
+    });
+    if((state.melds[result.seat]||[]).length)meldBlock.append(meldLabel,meldList);
+    const handBlock=document.createElement('div');handBlock.className='result-hand-block';
+    const handLabel=document.createElement('div');handLabel.className='result-section-label';handLabel.textContent='胡牌手牌';
     const hand=document.createElement('div');hand.className='result-winning-hand';
     (result.winningHand||[]).forEach((tile,index)=>{const e=tileEl(tile,index===result.winningHand.length-1&&tile===result.winningTile?'drawn-tile':'');hand.appendChild(e)});
-    winning.append(title,detail,hand);
+    handBlock.append(handLabel,hand);winning.append(title,detail,meldBlock,handBlock);
   }else{
     const title=document.createElement('div');title.className='result-winning-title';title.textContent='本局荒牌';
     const detail=document.createElement('div');detail.className='result-winning-text';detail.textContent='没有玩家胡牌，本局杠分仍计入账户';winning.append(title,detail);
@@ -228,6 +260,15 @@ $('result-new').addEventListener('click',()=>newGame());$('reset-bankroll').addE
 $('rules-modal').addEventListener('click',e=>{if(e.target===$('rules-modal'))closeRules()});
 $('result-modal').addEventListener('click',e=>{if(e.target===$('result-modal'))$('result-modal').classList.add('hidden')});
 
+if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
+  window.__shipingMahjongDebugForceWin=()=>{
+    if(!state)return;
+    state.melds[0]=[{type:'peng',tiles:[8,8,8],from:1}];
+    state.phase='over';state.winner={seat:0,type:'self',from:null};
+    state.result={type:'self',seat:0,title:'自摸胡',detail:'测试胡牌展示',winType:'自摸',winningTile:33,winningHand:[0,1,2,9,10,11,18,19,20,27,28,29,30,33],winningType:'标准胡牌'};
+    state.scores=[9,-3,-3,-3];render();
+  };
+ }
 window.__shipingMahjongDebug=()=>state?({
   phase:state.phase,current:state.current,dealer:state.dealer,
   wall:state.wall.length,hands:state.hands.map(h=>h.length),
