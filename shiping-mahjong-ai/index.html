@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#063c28">
 <meta name="description" content="石屏麻将，四人牌桌单机练习版。">
 <title>石屏麻将 · 四人牌桌</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23063c28'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23f5e3bd' font-family='serif'%3E%E7%9F%B3%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 <script defer src="js/core.js"></script>
 <script defer src="js/ui.js"></script>
@@ -17,6 +18,7 @@
     <div class="top-actions">
       <div class="top-stat"><span class="lamp"></span><span id="wall-count">牌墙 83</span></div>
       <div class="top-stat bankroll-stat" id="bankroll-display">你的余额 100</div>
+      <button class="log-toggle" id="log-toggle" type="button" aria-expanded="false" aria-controls="log-panel">日志</button>
       <button class="sound-toggle" id="sound-toggle" type="button" aria-pressed="true">声音 开</button>
       <button class="icon-button" id="rules-open" title="规则设置" aria-label="规则设置">☰</button>
       <button class="new-game-button" id="new-game">新开一局</button>
@@ -30,27 +32,21 @@
 
         <div class="dice-overlay hidden" id="dice-overlay" aria-live="polite">
           <div class="dice-card">
-            <span class="dice-eyebrow">SHIPPING TABLE · DICE DRAW</span>
+            <span class="dice-eyebrow">SHIPING TABLE · DICE DRAW</span>
             <h2>掷骰定庄 · 决定开牌位置</h2>
             <div class="dice-pair">
-              <div class="dice-cube rolling" id="dice-one" aria-label="第一颗骰子"></div>
-              <div class="dice-cube rolling" id="dice-two" aria-label="第二颗骰子"></div>
+              <div class="dice-cube" id="dice-one" aria-label="第一颗骰子"></div>
+              <div class="dice-cube" id="dice-two" aria-label="第二颗骰子"></div>
             </div>
             <div class="dice-outcome" id="dice-outcome">正在掷骰…</div>
             <div class="dice-subtitle" id="dice-subtitle">骰子点数将决定庄家和开牌墙位</div>
           </div>
         </div>
 
-        <div class="wall-strip wall-north" aria-hidden="true"></div>
-        <div class="wall-strip wall-south" aria-hidden="true"></div>
-        <div class="wall-strip wall-west" aria-hidden="true"></div>
-        <div class="wall-strip wall-east" aria-hidden="true"></div>
-
-
         <section class="seat seat-north" id="seat-1">
           <div class="seat-top"><div class="avatar avatar-north">李</div><div class="seat-meta"><b>北家 · 老李</b><span class="seat-score" id="score-1">0</span></div><span class="seat-turn" id="turn-1"></span></div>
           <div class="opponent-hand" id="back-1"></div>
-          <div class="meld-row" id="meld-1"></div>
+          <div class="meld-row meld-row-north" id="meld-1"></div>
         </section>
 
         <section class="seat seat-west" id="seat-3">
@@ -66,55 +62,78 @@
         </section>
 
         <div class="center-table">
+          <div class="wall-strip wall-north" aria-hidden="true"></div>
+          <div class="wall-strip wall-south" aria-hidden="true"></div>
+          <div class="wall-strip wall-west" aria-hidden="true"></div>
+          <div class="wall-strip wall-east" aria-hidden="true"></div>
           <div class="center-hud">
             <div class="hud-wind"><span>东</span><span>南</span><span>西</span><span>北</span></div>
-            <div class="hud-clock"><b id="turn-clock">15</b><small>秒</small></div>
+            <div class="hud-clock"><b id="turn-clock">–</b><small>秒</small></div>
+            <div class="discard-callout hidden" id="discard-callout" aria-live="polite"></div>
             <div class="hud-caption"><span id="round-label">第 1 局</span><i></i><span id="turn-label">轮到你出牌</span></div>
+            <div class="center-footer"><span class="dealer-chip" id="dealer-chip">庄</span><span id="dealer-label">南家坐庄</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
           </div>
-          <div class="discard-callout hidden" id="discard-callout" aria-live="polite"></div>
           <div class="discard-zone" id="discard-zone">
             <div class="discard-stack discard-north" id="discards-1"></div>
             <div class="discard-stack discard-west" id="discards-3"></div>
             <div class="discard-stack discard-east" id="discards-2"></div>
             <div class="discard-stack discard-south" id="discards-0"></div>
           </div>
-          <div class="center-footer"><span class="dealer-chip" id="dealer-chip">庄</span><span id="dealer-label">南家坐庄</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
         </div>
 
         <section class="seat seat-south" id="seat-0">
           <div class="seat-top"><div class="avatar avatar-you">你</div><div class="seat-meta"><b>你 · 南家</b><span class="seat-score" id="score-0">0</span></div><span class="seat-turn" id="turn-0"></span></div>
-          <div class="meld-row meld-own" id="meld-0"></div>
         </section>
 
         <div class="hand-panel">
           <div class="hand-heading"><span class="hand-label">我的手牌</span><span id="hand-count">14 张</span><span class="hand-tip" id="hand-tip">点击牌面出牌</span></div>
+          <div class="meld-row meld-own" id="meld-0"></div>
           <div class="hand-tiles" id="hand-tiles" aria-label="我的手牌"></div>
           <div class="action-bar" id="action-bar"><div class="action-placeholder">轮到你时，操作会显示在这里</div></div>
         </div>
-<div class="modal-backdrop table-result-layer hidden" id="result-modal" role="dialog" aria-modal="false" aria-labelledby="result-title">
-  <div class="modal-card result-card"><div class="result-icon" id="result-icon">和</div><span class="eyebrow">ROUND RESULT</span><h2 id="result-title">本局结束</h2><p id="result-detail">四家积分已经结算。</p><div class="result-winning" id="result-winning"></div>
-    <div class="result-scores" id="result-scores"></div>
-    <button class="secondary-button reset-bankroll-button" id="reset-bankroll">重置四家积分到 100</button>
-    <button class="primary-button result-new" id="result-new">再来一局</button></div>
-</div>
+
+        <div class="table-result-layer hidden" id="result-modal" role="dialog" aria-modal="false" aria-labelledby="result-title">
+          <div class="result-card">
+            <div class="result-head">
+              <div class="result-icon" id="result-icon">胡</div>
+              <div class="result-head-text">
+                <span class="eyebrow">ROUND RESULT</span>
+                <h2 id="result-title">本局结束</h2>
+                <p id="result-detail">四家积分已经结算。</p>
+              </div>
+            </div>
+            <div class="result-winning" id="result-winning"></div>
+            <div class="result-scores" id="result-scores"></div>
+            <div class="result-actions">
+              <button class="secondary-button reset-bankroll-button" id="reset-bankroll" type="button">重置四家积分到 100</button>
+              <button class="primary-button result-new" id="result-new" type="button">再来一局</button>
+            </div>
+          </div>
+        </div>
+
         <div class="hidden-runtime" aria-hidden="true">
           <span id="side-score-0">0</span><span id="side-score-1">0</span><span id="side-score-2">0</span><span id="side-score-3">0</span>
-          <div id="activity-list"></div>
         </div>
-        <button class="table-menu" id="rules-open-2" aria-label="打开规则设置">☰</button>
+        <button class="table-menu" id="rules-open-2" aria-label="打开规则设置" type="button">☰</button>
       </div>
     </section>
   </main>
 </div>
 
+<aside class="log-panel hidden" id="log-panel" aria-label="调试日志">
+  <div class="log-head"><b>调试日志</b><span>回合 / 状态 / AI 任务</span><button id="log-clear" type="button">清空</button></div>
+  <ol class="log-list" id="log-list"></ol>
+</aside>
+
 <div class="modal-backdrop hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title">
-  <div class="modal-card rules-card"><div class="modal-heading"><div><span class="eyebrow">GAME SETTINGS</span><h2 id="rules-title">规则设置</h2></div><button class="close-button" id="rules-close" aria-label="关闭">×</button></div>
+  <div class="modal-card rules-card">
+    <div class="modal-heading"><div><span class="eyebrow">GAME SETTINGS</span><h2 id="rules-title">规则设置</h2></div><button class="close-button" id="rules-close" aria-label="关闭" type="button">×</button></div>
     <p class="modal-intro">开关只影响下一局。保存后点击“新开一局”生效。</p>
     <label class="setting-row"><span><b>吃牌</b><small>只能吃上家打出的牌</small></span><input type="checkbox" id="setting-chi" checked><i></i></label>
     <label class="setting-row"><span><b>碰牌</b><small>可碰任意一家打出的牌</small></span><input type="checkbox" id="setting-peng" checked><i></i></label>
     <label class="setting-row"><span><b>杠牌</b><small>明杠、暗杠、补杠，杠后补牌</small></span><input type="checkbox" id="setting-gang" checked><i></i></label>
     <label class="setting-row"><span><b>烂牌胡</b><small>14 张不重复，数牌按 147 / 258 / 369 分组</small></span><input type="checkbox" id="setting-badHu" checked><i></i></label>
-    <div class="modal-actions"><button class="secondary-button" id="rules-cancel">取消</button><button class="primary-button" id="rules-save">保存设置</button></div>
+    <div class="modal-actions"><button class="secondary-button" id="rules-cancel" type="button">取消</button><button class="primary-button" id="rules-save" type="button">保存设置</button></div>
   </div>
 </div>
 

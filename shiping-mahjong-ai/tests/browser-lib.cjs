@@ -1,0 +1,101 @@
+/* 浏览器测试公共设施：本地静态服务器 + Chromium 启动（复用本机安装的 Chrome/Edge） */
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { chromium } = require('playwright-core');
+
+const ROOT = path.resolve(__dirname, '..');
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.cjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg'
+};
+
+function startServer() {
+  const server = http.createServer((req, res) => {
+    const url = decodeURIComponent((req.url || '/').split('?')[0]);
+    let file = path.join(ROOT, url === '/' ? 'index.html' : url);
+    if (!file.startsWith(ROOT)) { res.writeHead(403); res.end('forbidden'); return; }
+    fs.readFile(file, (err, buf) => {
+      if (err) { res.writeHead(404, { 'content-type': 'text/plain' }); res.end('not found'); return; }
+      res.writeHead(200, {
+        'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+        'cache-control': 'no-store'
+      });
+      res.end(buf);
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      resolve({ server, origin: `http://127.0.0.1:${port}`, close: () => new Promise((r) => server.close(r)) });
+    });
+  });
+}
+
+function chromePath() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe'
+  ].filter(Boolean);
+  for (const p of candidates) if (fs.existsSync(p)) return p;
+  throw new Error('未找到本机 Chrome / Edge');
+}
+
+async function launch() {
+  return chromium.launch({
+    headless: true,
+    executablePath: chromePath(),
+    args: ['--no-sandbox', '--disable-gpu', '--autoplay-policy=no-user-gesture-required', '--mute-audio']
+  });
+}
+
+async function newPage(browser, origin, viewport) {
+  const page = await browser.newPage({ viewport: viewport || { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('requestfailed', (r) => {
+    const t = r.failure() && r.failure().errorText;
+    if (t !== 'net::ERR_ABORTED') errors.push('request: ' + r.url() + ' ' + t);
+  });
+  await page.goto(origin + '/?debug=1', { waitUntil: 'load' });
+  await page.waitForFunction(() => typeof window.__shipingMahjongDebug === 'function');
+  page.__errors = errors;
+  return page;
+}
+
+/** 等待轮到真人出牌；遇到接牌提示自动「过」，遇到结算返回 'over' */
+async function waitHumanTurn(page, timeout = 45000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const s = await page.evaluate(() => window.__shipingMahjongDebug());
+    if (!s) { await page.waitForTimeout(50); continue; }
+    if (s.phase === 'over') return 'over';
+    if (s.awaiting && s.awaiting.seat === 0) {
+      const clicked = await page.evaluate(() => {
+        const b = document.querySelector('#action-bar .action-pass');
+        if (b) { b.click(); return 'pass'; }
+        return null;
+      });
+      if (clicked) { await page.waitForTimeout(60); continue; }
+      if (s.awaiting.kind === 'discard') return 'discard';
+    }
+    await page.waitForTimeout(60);
+  }
+  throw new Error('等待玩家操作超时：' + JSON.stringify(await page.evaluate(() => window.__shipingMahjongDebug())));
+}
+
+module.exports = { startServer, launch, newPage, waitHumanTurn, ROOT };

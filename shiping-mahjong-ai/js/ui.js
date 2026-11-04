@@ -1,417 +1,1137 @@
-(()=>{'use strict';
-const C=window.ShipingMahjongCore,$=id=>document.getElementById(id);
-const NAMES=['你','老李','阿梅','小赵'],SEATS=['南家','北家','西家','东家'];
-const SETTINGS_KEY='shiping-mahjong-settings-v1',SOUND_KEY='shiping-mahjong-sound-v1',BANKROLL_KEY='shiping-mahjong-bankroll-v1';
-let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[],aiWatchdog=null,aiToken=0,aiScheduledAt=0,aiScheduledSeat=null,claimProcessing=false,supervisorTimer=null,lastDiscardVisual=null;
-let diceTimer=null,diceInterval=null,settledState=null,balances=loadBankroll(),soundEnabled=loadSoundSetting(),audioReady=false,audioCtx=null;
+/* 石屏麻将 · 牌桌驱动层 | GPL-3.0-or-later
+ *
+ * 核心约束：
+ * 1. 唯一的推进入口是 pump()，它从 core 的 awaiting() 读取「现在必须谁行动、做什么」，
+ *    然后要么交给人类界面，要么安排一次性 AI 任务。
+ * 2. 每个 AI 任务都带代际号 epoch。任何状态变化都会让 epoch 自增并清掉旧任务，
+ *    因此不存在「旧定时器覆盖新回合」或「同一回合重复排程」。
+ * 3. 心跳只做一致性检查与重新排程，绝不代替玩家/AI 自动出牌来掩盖错误。
+ */
+(() => {
+  'use strict';
+  const C = window.ShipingMahjongCore;
+  const $ = (id) => document.getElementById(id);
+  const NAMES = ['你', '老李', '阿梅', '小赵'];
+  const SEATS = ['南家', '北家', '西家', '东家'];
+  const KEY_SETTINGS = 'shiping-mahjong-settings-v1';
+  const KEY_SOUND = 'shiping-mahjong-sound-v1';
+  const KEY_BANK = 'shiping-mahjong-bankroll-v1';
+  const KEY_ROUND = 'shiping-mahjong-round-v1';
 
-function loadSettings(){try{return Object.assign({chi:true,peng:true,gang:true,badHu:true},JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}'))}catch(_){return{chi:true,peng:true,gang:true,badHu:true}}}
-function loadBankroll(){try{const a=JSON.parse(localStorage.getItem(BANKROLL_KEY)||'null');if(Array.isArray(a)&&a.length===4&&a.every(x=>Number.isFinite(x)))return a.map(x=>Math.floor(x))}catch(_){}return[100,100,100,100]}
-function saveBankroll(){try{localStorage.setItem(BANKROLL_KEY,JSON.stringify(balances))}catch(_){}}
-function saveSettings(){settings={chi:$('setting-chi').checked,peng:$('setting-peng').checked,gang:$('setting-gang').checked,badHu:$('setting-badHu').checked};try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings))}catch(_){}toast('规则已保存，新开一局后生效');closeRules()}
-function openRules(){$('setting-chi').checked=!!settings.chi;$('setting-peng').checked=!!settings.peng;$('setting-gang').checked=!!settings.gang;$('setting-badHu').checked=!!settings.badHu;$('rules-modal').classList.remove('hidden')}
-function closeRules(){$('rules-modal').classList.add('hidden')}
-function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.classList.remove('show'),1900)}
-function fmt(n){return(n>0?'+':'')+n}
-function projectedBalance(seat){return balances[seat]+(state&&state.phase!=='over'?state.scores[seat]:0)}
-function updateBankrollTop(){const e=$('bankroll-display');if(e)e.textContent='你的余额 '+projectedBalance(0)}
-function settleRound(){if(!state||state.phase!=='over'||settledState===state)return;for(let i=0;i<4;i++)balances[i]=balances[i]+state.scores[i];saveBankroll();settledState=state}
-function loadSeatBalances(){for(let i=0;i<4;i++){const e=$('score-'+i);if(e)e.textContent='余额 '+projectedBalance(i)+' 分';const side=$('side-score-'+i);if(side)side.textContent=String(projectedBalance(i))}updateBankrollTop()}
-function loadSoundSetting(){try{return localStorage.getItem(SOUND_KEY)!=='off'}catch(_){return true}}
-function syncSoundButton(){const b=$('sound-toggle');if(!b)return;b.textContent=soundEnabled?'声音 开':'声音 关';b.setAttribute('aria-pressed',String(soundEnabled));b.title=soundEnabled?'关闭麻将音效':'开启麻将音效'}
-function tone(freq,start,duration,volume,wave='sine'){if(!audioCtx)return;const osc=audioCtx.createOscillator(),gain=audioCtx.createGain(),at=audioCtx.currentTime+start;osc.type=wave;osc.frequency.setValueAtTime(freq,at);gain.gain.setValueAtTime(.0001,at);gain.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),at+.008);gain.gain.exponentialRampToValueAtTime(.0001,at+duration);osc.connect(gain);gain.connect(audioCtx.destination);osc.start(at);osc.stop(at+duration+.015)}
-function playSound(kind='ui'){if(!soundEnabled||!audioReady)return;const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;try{if(!audioCtx)audioCtx=new Audio();if(audioCtx.state==='suspended')audioCtx.resume();const p={ui:[[880,0,.045,.018,'sine']],庄:[[420,0,.06,.02,'triangle'],[620,.065,.07,.022,'triangle'],[820,.14,.08,.024,'triangle']],摸:[[690,0,.055,.026,'triangle'],[980,.035,.035,.012,'sine']],出:[[245,0,.075,.045,'triangle'],[720,.012,.025,.012,'sine']],吃:[[420,0,.08,.028,'sine'],[560,.07,.09,.03,'sine']],碰:[[520,0,.07,.032,'triangle'],[760,.065,.1,.032,'triangle']],杠:[[360,0,.1,.035,'triangle'],[520,.09,.11,.035,'triangle'],[760,.18,.13,.035,'triangle']],胡:[[523,0,.12,.035,'sine'],[659,.12,.12,.038,'sine'],[784,.24,.15,.04,'sine'],[1046,.39,.24,.045,'sine']]};(p[kind]||p.ui).forEach(v=>tone(...v))}catch(_){}}
-function toggleSound(){soundEnabled=!soundEnabled;try{localStorage.setItem(SOUND_KEY,soundEnabled?'on':'off')}catch(_){}syncSoundButton();if(soundEnabled){audioReady=true;playSound('ui')}}
-function tileEl(id,cls=''){const e=document.createElement('div');e.className='tile-face tile-'+C.tileCode(id)+(cls?' '+cls:'');e.title=C.tileLabel(id);e.setAttribute('aria-label',C.tileLabel(id));return e}
-function backEl(){const e=document.createElement('div');e.className='tile-back';return e}
-function captureDiscardSource(seat,index){
-  const el=seat===0?$('hand-tiles').children[index]:$('back-'+seat);
-  const source=el||$('seat-'+seat);if(!source)return null;
-  const r=source.getBoundingClientRect();return{left:r.left,top:r.top,width:r.width,height:r.height};
-}
-function afterDiscard(seat,tile,source){
-  lastDiscardVisual={seat,tile,index:state.discards[seat].length-1};
-  const callout=$('discard-callout');
-  if(callout){callout.textContent=SEATS[seat]+' · '+NAMES[seat]+' 打出 '+C.tileLabel(tile);callout.classList.remove('hidden');callout.dataset.seat=String(seat)}
-  render();animateDiscard(seat,tile,source);
-}
-function animateDiscard(seat,tile,source){
-  const target=$('discards-'+seat)?.lastElementChild;if(!target)return;
-  const to=target.getBoundingClientRect(),from=source||captureDiscardSource(seat,-1);if(!from)return;
-  const w=to.width||25,h=to.height||35,sx=from.left+from.width/2-w/2,sy=from.top+from.height/2-h/2,dx=to.left-sx,dy=to.top-sy;
-  const flying=tileEl(tile,'discard-flight');Object.assign(flying.style,{left:sx+'px',top:sy+'px',width:w+'px',height:h+'px'});
-  document.body.appendChild(flying);window.__shipingMahjongLastDiscardFlight={seat,tile,from:{x:sx,y:sy},to:{x:to.left,y:to.top}};
-  if(typeof flying.animate==='function'){const animation=flying.animate([{transform:'translate(0,0) scale(.78)',opacity:.92},{transform:'translate('+dx+'px,'+dy+'px) scale(1)',opacity:1}],{duration:420,easing:'cubic-bezier(.18,.75,.25,1)',fill:'forwards'});animation.onfinish=()=>flying.remove();animation.oncancel=()=>flying.remove()}
-  else setTimeout(()=>flying.remove(),450);
-}
-function addLog(txt,mark='•'){activity.unshift({text:txt,marker:mark,time:new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})});activity=activity.slice(0,16);renderLog();const last=$('last-action');if(last)last.textContent=txt;playSound(mark)}
-function renderLog(){const b=$('activity-list');if(!b)return;b.innerHTML='';if(!activity.length){b.innerHTML='<div class="activity-empty">牌局开始后，出牌和操作会显示在这里。</div>';return}activity.forEach(x=>{const row=document.createElement('div');row.className='activity-item';const m=document.createElement('div');m.className='activity-marker';m.textContent=x.marker;const body=document.createElement('div');body.textContent=x.text;const t=document.createElement('span');t.className='activity-time';t.textContent=x.time;body.appendChild(t);row.append(m,body);b.appendChild(row)})}
-function clearTimer(){
-  if(timer)clearTimeout(timer);timer=null;
-  if(aiWatchdog)clearTimeout(aiWatchdog);aiWatchdog=null;
-  aiScheduledAt=0;aiScheduledSeat=null;aiToken++;
-}
-function scheduleAi(ms){
-  if(!state||state.phase!=='discard'||state.current===0||state.phase==='over')return;
-  if(timer)clearTimeout(timer);
-  if(aiWatchdog)clearTimeout(aiWatchdog);
-  const token=++aiToken,seat=state.current,delay=Number.isFinite(ms)?ms:420;
-  aiScheduledSeat=seat;aiScheduledAt=Date.now();
-  $('turn-label').textContent=NAMES[seat]+' 思考中…';
-  timer=setTimeout(()=>{
-    if(token!==aiToken)return;
-    timer=null;
-    aiTurn(token,seat);
-  },delay);
-  aiWatchdog=setTimeout(()=>watchdogAiProgress(token,seat),1700);
-}
-function watchdogAiProgress(token,seat){
-  if(token!==aiToken)return;
-  aiWatchdog=null;
-  if(!state||state.phase==='over')return;
-  if(state.phase==='reaction'){
-    const pending=state.pendingClaims[state.claimCursor];
-    if(pending&&pending.seat===0){
-      if(!waiting){waiting=true;renderClaim(pending);render()}
+  const SPEED = { claim: 700, discard: 780, kong: 620 };
+  const HEARTBEAT_MS = 900;
+  const STALL_MS = 2600;
+  const MAX_RETRY = 8;
+
+  /* ---------------- 运行时状态 ---------------- */
+  let state = null;
+  let settings = loadSettings();
+  let balances = loadBankroll();
+  let roundNo = loadRoundNo();
+  let epoch = 0;
+  let aiTask = null;
+  let decision = null;          // 当前人类决策 {seat, kind, actions, signature}
+  let settledState = null;
+  let speedScale = 1;           // 压力测试时可降到 0
+  let autoPlay = false;
+  let heartbeat = null;
+  let turnClock = null, turnLeft = 15;
+  let decisionAt = 0;
+  let retryCount = 0;
+  let renderSig = '';
+  let barSig = '';
+  let handRects = [];
+  let beforeCapture = null;
+  let busy = false;
+  const LOGS = [];
+  let lastDice = null;
+  let audioCtx = null, soundEnabled = loadSoundSetting(), audioReady = false;
+
+  /* ---------------- 存储 ---------------- */
+  function loadSettings() {
+    try {
+      return Object.assign({ chi: true, peng: true, gang: true, badHu: true },
+        JSON.parse(localStorage.getItem(KEY_SETTINGS) || '{}'));
+    } catch (_) { return { chi: true, peng: true, gang: true, badHu: true }; }
+  }
+  function loadSoundSetting() { try { return localStorage.getItem(KEY_SOUND) !== 'off'; } catch (_) { return true; } }
+  function loadBankroll() {
+    try {
+      const a = JSON.parse(localStorage.getItem(KEY_BANK) || 'null');
+      if (Array.isArray(a) && a.length === 4 && a.every((x) => Number.isFinite(x))) return a.map((x) => Math.floor(x));
+    } catch (_) { /* ignore */ }
+    return [100, 100, 100, 100];
+  }
+  function saveBankroll() { try { localStorage.setItem(KEY_BANK, JSON.stringify(balances)); } catch (_) { /* ignore */ } }
+  function loadRoundNo() { try { return Math.max(1, Number(localStorage.getItem(KEY_ROUND)) || 1); } catch (_) { return 1; } }
+  function saveRoundNo() { try { localStorage.setItem(KEY_ROUND, String(roundNo)); } catch (_) { /* ignore */ } }
+
+  /* ---------------- 调试日志 ---------------- */
+  function stamp() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:` +
+      `${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+  }
+  function logLine(kind, text) {
+    const entry = { at: stamp(), kind, text };
+    LOGS.push(entry);
+    if (LOGS.length > 400) LOGS.shift();
+    const list = $('log-list');
+    if (!list) return;
+    const li = document.createElement('li');
+    li.className = 'log-item log-' + kind;
+    const time = document.createElement('span'); time.className = 'log-time'; time.textContent = entry.at;
+    const body = document.createElement('span'); body.className = 'log-text'; body.textContent = text;
+    li.append(time, body);
+    list.appendChild(li);
+    while (list.children.length > 120) list.removeChild(list.firstChild);
+    list.scrollTop = list.scrollHeight;
+  }
+  function stateDigest() {
+    if (!state) return 'state=null';
+    const a = C.awaiting(state);
+    const pending = state.pendingClaims.map((c) => `${c.seat}:${c.preferred}`).join(',') || '-';
+    return `phase=${state.phase} cur=${state.current} wall=${state.wall.length} ` +
+      `hands=${state.hands.map((h) => h.length).join('/')} ` +
+      `discards=${state.discards.map((d) => d.length).join('/')} melds=${state.melds.map((m) => m.length).join('/')} ` +
+      `pending=[${pending}] cursor=${state.claimCursor} await=${a ? a.seat + ':' + a.kind : 'none'} ` +
+      `aiTask=${aiTask ? aiTask.seat + ':' + aiTask.kind + '@' + aiTask.epoch : 'off'} epoch=${epoch}`;
+  }
+  function logAction(type, source, detail) {
+    const seat = state ? state.current : '-';
+    logLine(type === 'error' ? 'error' : 'action',
+      `${type} src=${source} seat=${seat} ${detail || ''} | ${stateDigest()}`);
+  }
+
+  /* ---------------- 音效 ---------------- */
+  function syncSoundButton() {
+    const b = $('sound-toggle');
+    if (!b) return;
+    b.textContent = soundEnabled ? '声音 开' : '声音 关';
+    b.setAttribute('aria-pressed', String(soundEnabled));
+  }
+  function tone(freq, start, duration, volume, wave = 'sine') {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    const at = audioCtx.currentTime + start;
+    osc.type = wave;
+    osc.frequency.setValueAtTime(freq, at);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), at + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(at); osc.stop(at + duration + 0.015);
+  }
+  function playSound(kind = 'ui') {
+    if (!soundEnabled || !audioReady) return;
+    const Audio = window.AudioContext || window.webkitAudioContext;
+    if (!Audio) return;
+    try {
+      if (!audioCtx) audioCtx = new Audio();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const bank = {
+        ui: [[880, 0, 0.045, 0.018, 'sine']],
+        zhuang: [[420, 0, 0.06, 0.02, 'triangle'], [620, 0.065, 0.07, 0.022, 'triangle'], [820, 0.14, 0.08, 0.024, 'triangle']],
+        draw: [[690, 0, 0.055, 0.026, 'triangle'], [980, 0.035, 0.035, 0.012, 'sine']],
+        discard: [[245, 0, 0.075, 0.045, 'triangle'], [720, 0.012, 0.025, 0.012, 'sine']],
+        chi: [[420, 0, 0.08, 0.028, 'sine'], [560, 0.07, 0.09, 0.03, 'sine']],
+        peng: [[520, 0, 0.07, 0.032, 'triangle'], [760, 0.065, 0.1, 0.032, 'triangle']],
+        gang: [[360, 0, 0.1, 0.035, 'triangle'], [520, 0.09, 0.11, 0.035, 'triangle'], [760, 0.18, 0.13, 0.035, 'triangle']],
+        hu: [[523, 0, 0.12, 0.035, 'sine'], [659, 0.12, 0.12, 0.038, 'sine'], [784, 0.24, 0.15, 0.04, 'sine'], [1046, 0.39, 0.24, 0.045, 'sine']]
+      };
+      (bank[kind] || bank.ui).forEach((v) => tone(...v));
+    } catch (_) { /* ignore */ }
+  }
+  function toggleSound() {
+    soundEnabled = !soundEnabled;
+    try { localStorage.setItem(KEY_SOUND, soundEnabled ? 'on' : 'off'); } catch (_) { /* ignore */ }
+    syncSoundButton();
+    if (soundEnabled) { audioReady = true; playSound('ui'); }
+  }
+
+  /* ---------------- 牌元素 ---------------- */
+  function tileEl(id, cls) {
+    const e = document.createElement('div');
+    e.className = 'tile-face tile-' + C.tileCode(id) + (cls ? ' ' + cls : '');
+    e.title = C.tileLabel(id);
+    e.setAttribute('aria-label', C.tileLabel(id));
+    e.dataset.tile = String(id);
+    return e;
+  }
+  function backEl() {
+    const e = document.createElement('div');
+    e.className = 'tile-back';
+    return e;
+  }
+  function rectOf(el) { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; }
+  function seatSourceRect(seat) {
+    if (seat === 0) {
+      const tiles = $('hand-tiles');
+      return tiles ? rectOf(tiles) : rectOf($('seat-0'));
+    }
+    const backs = $('back-' + seat);
+    return backs ? rectOf(backs) : rectOf($('seat-' + seat));
+  }
+  function reducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /* ---------------- 出牌飞行动画 ---------------- */
+  function flyDiscard(seat, tile, fromRect) {
+    const target = $('discards-' + seat) && $('discards-' + seat).lastElementChild;
+    if (!target) return;
+    target.style.opacity = '0';
+    const to = rectOf(target);
+    const from = fromRect || seatSourceRect(seat);
+    const w = to.width || 26, h = to.height || 36;
+    const sx = from.left + from.width / 2 - w / 2;
+    const sy = from.top + from.height / 2 - h / 2;
+    const flying = tileEl(tile, 'discard-flight');
+    Object.assign(flying.style, { left: sx + 'px', top: sy + 'px', width: w + 'px', height: h + 'px' });
+    document.body.appendChild(flying);
+    window.__shipingMahjongLastDiscardFlight = { seat, tile, from: { x: sx, y: sy }, to: { x: to.left, y: to.top } };
+    const finish = () => { flying.remove(); target.style.opacity = ''; };
+    if (reducedMotion() || typeof flying.animate !== 'function') { finish(); return; }
+    const dx = to.left - sx, dy = to.top - sy;
+    const anim = flying.animate([
+      { transform: 'translate(0,0) scale(1.16) rotate(-6deg)', opacity: 0.96, offset: 0 },
+      { transform: `translate(${dx * 0.55}px,${dy * 0.5 - 22}px) scale(1.06) rotate(3deg)`, opacity: 1, offset: 0.55 },
+      { transform: `translate(${dx}px,${dy}px) scale(1) rotate(0deg)`, opacity: 1, offset: 1 }
+    ], { duration: 430, easing: 'cubic-bezier(.22,.72,.25,1)', fill: 'forwards' });
+    anim.onfinish = finish;
+    anim.oncancel = finish;
+  }
+
+  /* ---------------- 渲染 ---------------- */
+  function computeSig() {
+    return [
+      state.phase, state.current, state.wall.length, state.dealer,
+      state.hands.map((h) => h.length).join(','),
+      state.discards.map((d) => d.length).join(','),
+      state.melds.map((m) => m.map((x) => x.type + x.tiles.join('.')).join('|')).join(','),
+      state.pendingClaims.length, state.claimCursor,
+      state.lastDraw ? state.lastDraw.seat + ':' + state.lastDraw.tile : '-',
+      state.scores.join(',')
+    ].join('#');
+  }
+  function render(force) {
+    if (!state) return;
+    const sig = computeSig();
+    if (!force && sig === renderSig) { renderSeatStatus(); return; }
+    renderSig = sig;
+    $('wall-count').textContent = '牌墙 ' + state.wall.length;
+    $('hand-count').textContent = state.hands[0].length + ' 张';
+    $('dealer-label').textContent = `${NAMES[state.dealer]} 坐庄 · ${state.wallBreak.side}墙第${state.wallBreak.stack}墩`;
+    $('round-label').textContent = '第 ' + roundNo + ' 局';
+    markDealer(state.dealer);
+    markWallBreak(state.wallBreak.side);
+    for (let s = 0; s < 4; s++) {
+      renderBacks(s);
+      renderMelds(s);
+      renderDiscards(s);
+    }
+    renderHand();
+    renderSeatStatus();
+    loadSeatBalances();
+  }
+  function renderSeatStatus() {
+    const activeSeat = state.phase === C.PHASES.OVER ? -1 : state.current;
+    for (let s = 0; s < 4; s++) {
+      const seatEl = $('seat-' + s);
+      if (seatEl) seatEl.classList.toggle('active', state.phase === C.PHASES.DISCARD && activeSeat === s);
+      const turnEl = $('turn-' + s);
+      if (turnEl) turnEl.textContent = '';
+    }
+    if (state.phase === C.PHASES.OVER) {
+      $('turn-label').textContent = '本局结束';
+    } else if (state.phase === C.PHASES.CLAIM) {
+      const cand = state.pendingClaims[state.claimCursor];
+      $('turn-label').textContent = cand ? (cand.seat === 0 ? '轮到你决定：接牌或过' : NAMES[cand.seat] + ' 正在考虑接牌') : '结算中…';
+    } else {
+      $('turn-label').textContent = state.current === 0 ? '轮到你出牌' : '轮到' + NAMES[state.current] + '行动';
+    }
+    const tip = $('hand-tip');
+    if (tip) {
+      tip.textContent = state.phase === C.PHASES.OVER ? '本局已结束'
+        : state.phase === C.PHASES.DISCARD && state.current === 0 ? '点击任意手牌出牌'
+          : '等待其他玩家操作';
+    }
+    refreshTurnClock();
+  }
+  function renderBacks(s) {
+    if (s === 0) return;
+    const box = $('back-' + s);
+    if (!box) return;
+    const n = Math.min(state.hands[s].length, 14);
+    if (box.children.length === n) return;
+    box.innerHTML = '';
+    for (let i = 0; i < n; i++) box.appendChild(backEl());
+  }
+  function meldLabelText(m) {
+    const called = m.calledTile === undefined || m.calledTile === null ? m.tiles[0] : m.calledTile;
+    if (m.type === 'chi') return '吃 ' + m.tiles.map(C.tileLabel).join('');
+    if (m.type === 'peng') return '碰 ' + C.tileLabel(called);
+    if (m.type === 'gang') return (m.concealed ? '暗杠 ' : m.added ? '补杠 ' : '明杠 ') + C.tileLabel(called);
+    return m.type;
+  }
+  function renderMelds(s) {
+    const box = $('meld-' + s);
+    if (!box) return;
+    box.innerHTML = '';
+    state.melds[s].forEach((m) => {
+      const group = document.createElement('div');
+      group.className = 'meld-group meld-' + m.type + (m.concealed ? ' is-concealed' : '');
+      const label = document.createElement('span');
+      label.className = 'meld-label';
+      label.textContent = meldLabelText(m);
+      const fromText = m.calledFrom === undefined ? '本家' : SEATS[m.calledFrom] + ' ' + NAMES[m.calledFrom];
+      label.title = m.calledTile === undefined ? label.textContent
+        : `${label.textContent}（${fromText} 打出 ${C.tileLabel(m.calledTile)}）`;
+      group.appendChild(label);
+      const tiles = document.createElement('span');
+      tiles.className = 'meld-tiles';
+      m.tiles.forEach((id, index) => {
+        const isCalled = Number.isInteger(m.calledTileIndex) && index === m.calledTileIndex && !m.concealed;
+        const el = tileEl(id, isCalled ? 'meld-called-tile' : '');
+        if (isCalled) {
+          el.dataset.called = '1';
+          el.dataset.calledFrom = String(m.calledFrom);
+          el.title = '接 ' + SEATS[m.calledFrom] + ' ' + C.tileLabel(id);
+          const pin = document.createElement('i');
+          pin.className = 'called-pin';
+          pin.textContent = '←';
+          el.appendChild(pin);
+        }
+        tiles.appendChild(el);
+      });
+      group.appendChild(tiles);
+      box.appendChild(group);
+    });
+  }
+  function renderDiscards(s) {
+    const box = $('discards-' + s);
+    if (!box) return;
+    const pile = state.discards[s];
+    box.classList.toggle('is-dense', pile.length > 18);
+    if (box.children.length === pile.length) {
+      // 只更新最新一张的高亮，避免重排造成闪烁
+      Array.from(box.children).forEach((el, i) => el.classList.toggle('latest-discard', i === pile.length - 1));
       return;
     }
-    processClaims();
-    return;
+    box.innerHTML = '';
+    pile.forEach((id, index) => {
+      const el = tileEl(id, index === pile.length - 1 ? 'latest-discard' : '');
+      if (index === pile.length - 1) el.title = SEATS[s] + ' ' + NAMES[s] + ' 打出 ' + C.tileLabel(id);
+      box.appendChild(el);
+    });
   }
-  if(state.phase==='discard'&&state.current!==0&&state.current===seat){
-    recoverAiTurn(new Error(NAMES[seat]+'的电脑回合超过响应时限，执行强制恢复'));
+  function renderHand() {
+    const box = $('hand-tiles');
+    if (!box) return;
+    const canPlay = state.phase === C.PHASES.DISCARD && state.current === 0;
+    box.innerHTML = '';
+    state.hands[0].forEach((id, i) => {
+      const isDrawn = state.lastDraw && state.lastDraw.seat === 0 && i === state.hands[0].length - 1 && state.lastDraw.tile === id;
+      const el = tileEl(id, (canPlay ? 'playable' : 'disabled') + (isDrawn ? ' drawn-tile' : ''));
+      if (canPlay) el.addEventListener('click', () => humanDiscard(i));
+      box.appendChild(el);
+    });
+    handRects = Array.from(box.children).map(rectOf);
   }
-}
-function superviseGame(){
-  if(!state)return;
-  if(state.phase==='over'){
-    if(timer||aiWatchdog)clearTimer();
-    return;
+  function loadSeatBalances() {
+    for (let i = 0; i < 4; i++) {
+      const e = $('score-' + i);
+      if (e) e.textContent = '余额 ' + projectedBalance(i) + ' 分';
+      const side = $('side-score-' + i);
+      if (side) side.textContent = String(projectedBalance(i));
+    }
+    const top = $('bankroll-display');
+    if (top) top.textContent = '你的余额 ' + projectedBalance(0);
   }
-  if(state.phase==='reaction'){
-    const pending=state.pendingClaims[state.claimCursor];
-    if(pending&&pending.seat===0){
-      if(timer||aiWatchdog)clearTimer();
-      if(!waiting){waiting=true;renderClaim(pending);render()}
+  function projectedBalance(seat) {
+    return balances[seat] + (state && state.phase !== C.PHASES.OVER ? state.scores[seat] : 0);
+  }
+  function markDealer(dealer) {
+    for (let i = 0; i < 4; i++) {
+      const seat = $('seat-' + i);
+      if (!seat) continue;
+      seat.classList.toggle('dealer-seat', i === dealer);
+      const top = seat.querySelector('.seat-top');
+      if (!top) continue;
+      let mark = top.querySelector('.dealer-mark');
+      if (i === dealer && !mark) {
+        mark = document.createElement('span');
+        mark.className = 'dealer-mark';
+        mark.textContent = '庄';
+        top.appendChild(mark);
+      } else if (i !== dealer && mark) mark.remove();
+    }
+  }
+  function markWallBreak(side) {
+    document.querySelectorAll('.wall-strip').forEach((x) => x.classList.remove('cut-wall'));
+    const map = { '南': '.wall-south', '北': '.wall-north', '西': '.wall-east', '东': '.wall-west' };
+    const el = document.querySelector(map[side] || '.wall-south');
+    if (el) el.classList.add('cut-wall');
+  }
+  function refreshTurnClock() {
+    const box = $('turn-clock');
+    if (!box) return;
+    const mine = state && state.phase === C.PHASES.DISCARD && state.current === 0;
+    if (!mine) {
+      if (turnClock) { clearInterval(turnClock); turnClock = null; }
+      box.textContent = '–';
+      box.classList.remove('urgent');
       return;
     }
-    if(timer||aiWatchdog)clearTimer();
-    if(!claimProcessing)processClaims();
-    return;
+    if (turnClock) return;
+    turnLeft = 15;
+    box.textContent = '15';
+    box.classList.remove('urgent');
+    turnClock = setInterval(() => {
+      if (!state || state.phase !== C.PHASES.DISCARD || state.current !== 0) {
+        clearInterval(turnClock); turnClock = null; return;
+      }
+      turnLeft = Math.max(0, turnLeft - 1);
+      box.textContent = String(turnLeft).padStart(2, '0');
+      box.classList.toggle('urgent', turnLeft <= 5);
+      if (turnLeft === 0) { clearInterval(turnClock); turnClock = null; }
+    }, 1000);
   }
-  if(state.phase!=='discard')return;
-  if(state.current===0){
-    if(timer||aiWatchdog)clearTimer();
-    return;
+
+  /* ---------------- 行动栏 ---------------- */
+  function setActionBar(signature, build) {
+    if (signature === barSig) return;
+    barSig = signature;
+    const bar = $('action-bar');
+    bar.innerHTML = '';
+    build(bar);
   }
-  const age=aiScheduledAt?Date.now()-aiScheduledAt:0;
-  const wrongSeat=aiScheduledSeat!==state.current;
-  if(wrongSeat){
-    scheduleAi(120);
-    return;
+  function addButton(bar, label, cls, handler) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'action-button action-' + cls;
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      audioReady = true;
+      playSound('ui');
+      handler();
+    });
+    bar.appendChild(b);
   }
-  if(!timer&&!aiWatchdog){
-    if(age>2400)recoverAiTurn(new Error('检测到电脑回合没有后续任务，自动恢复'));
-    else scheduleAi(120);
-    return;
+  function addInfo(bar, text) {
+    const n = document.createElement('div');
+    n.className = 'action-info';
+    n.textContent = text;
+    bar.appendChild(n);
   }
-  if(age>3200){
-    clearTimer();
-    recoverAiTurn(new Error('电脑回合任务超时，自动恢复'));
+
+  /* ---------------- 人类决策 ---------------- */
+  function showHumanDecision(a) {
+    decision = { seat: a.seat, kind: a.kind, at: Date.now() };
+    if (a.kind === 'claim') {
+      const cand = a.candidate;
+      const types = cand.actions.map((x) => x.type).join(',');
+      setActionBar('claim:' + state.lastDiscard.tile + ':' + types, (bar) => {
+        addInfo(bar, SEATS[cand.seat] + ' 请选择：有人打出 ' + C.tileLabel(state.lastDiscard.tile));
+        if (types.includes('hu')) addButton(bar, '胡牌', 'hu', () => humanClaim('hu'));
+        if (types.includes('gang')) addButton(bar, '明杠', 'gang', () => humanClaim('gang'));
+        if (types.includes('peng')) addButton(bar, '碰', 'peng', () => humanClaim('peng'));
+        const chi = cand.actions.find((x) => x.type === 'chi');
+        if (chi) {
+          chi.options.forEach((opt, i) => {
+            addButton(bar, '吃 ' + opt.meld.map(C.tileLabel).join(''), 'chi', () => humanClaim('chi', i));
+          });
+        }
+        addButton(bar, '过', 'pass', humanPass);
+      });
+    } else {
+      const own = C.selfActions(state, 0);
+      const sig = 'discard:' + own.hu + ':' + own.concealedKongs.join('.') + ':' + own.addedKongs.join('.');
+      setActionBar(sig, (bar) => {
+        if (own.hu) addButton(bar, '自摸胡', 'hu', humanWin);
+        own.concealedKongs.forEach((id) => addButton(bar, '暗杠 ' + C.tileLabel(id), 'gang', () => humanSelfKong('concealed', id)));
+        own.addedKongs.forEach((id) => addButton(bar, '补杠 ' + C.tileLabel(id), 'gang', () => humanSelfKong('added', id)));
+        if (!own.hu && !own.concealedKongs.length && !own.addedKongs.length) addInfo(bar, '选择一张手牌出牌');
+        else addInfo(bar, '或点击手牌出牌');
+      });
+    }
   }
-}
-function clearTurnClock(){if(turnClock)clearInterval(turnClock);turnClock=null}
-function refreshTurnClock(){clearTurnClock();const e=$('turn-clock');if(!e)return;turnSeconds=15;e.textContent='15';if(!state||state.phase!=='discard'||state.current!==0)return;turnClock=setInterval(()=>{if(!state||state.phase!=='discard'||state.current!==0){clearTurnClock();return}turnSeconds=Math.max(0,turnSeconds-1);e.textContent=String(turnSeconds).padStart(2,'0');if(turnSeconds===0)clearTurnClock()},1000)}
-function setDiceFace(id,value){
-  const el=$(id);if(!el)return;
-  let cube=el.querySelector('.die-cube3d');
-  if(!cube){
-    cube=document.createElement('div');cube.className='die-cube3d';
-    const faces=[
-      {name:'front',value:1,transform:'translateZ(33px)'},
-      {name:'back',value:6,transform:'rotateY(180deg) translateZ(33px)'},
-      {name:'right',value:3,transform:'rotateY(90deg) translateZ(33px)'},
-      {name:'left',value:4,transform:'rotateY(-90deg) translateZ(33px)'},
-      {name:'top',value:2,transform:'rotateX(90deg) translateZ(33px)'},
-      {name:'bottom',value:5,transform:'rotateX(-90deg) translateZ(33px)'}
-    ];
-    const patterns={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
-    faces.forEach(face=>{
-      const panel=document.createElement('div');panel.className='die-face die-'+face.name;
-      panel.dataset.value=String(face.value);panel.style.transform=face.transform;
-      for(let i=0;i<9;i++){
-        const dot=document.createElement('i');
-        if(patterns[face.value].includes(i))dot.className='on';
+
+  /* ---------------- 命令包装 ---------------- */
+  function command(source, fn) {
+    if (!state) return;
+    busy = true;
+    try {
+      fn();
+    } catch (err) {
+      logLine('error', `命令失败 src=${source}: ${err.message} | ${stateDigest()}`);
+      console.error('[mahjong] command failed', err);
+      toast(err.message || '操作失败');
+    } finally {
+      busy = false;
+    }
+    bumpEpoch();
+    retryCount = 0;
+    flushEvents(source);
+    pump('after:' + source);
+  }
+  function bumpEpoch() {
+    epoch += 1;
+    if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
+  }
+  function flushEvents(source) {
+    if (!state) return;
+    const events = state.events;
+    const consumed = state.__consumed || 0;
+    const fresh = events.slice(consumed);
+    state.__consumed = events.length;
+    let discardFx = null;
+    for (const ev of fresh) {
+      switch (ev.type) {
+        case 'draw':
+          logLine('action', `摸牌 seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)} wall=${ev.wall}`);
+          if (ev.seat !== 0) playSound('draw');
+          break;
+        case 'discard':
+          logLine('action', `出牌 src=${source} seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)} pending=${ev.pending.join(',') || '无'}`);
+          playSound('discard');
+          if (ev.seat === 0 && beforeCapture) discardFx = { seat: 0, tile: ev.tile, rect: beforeCapture };
+          else discardFx = { seat: ev.seat, tile: ev.tile, rect: null };
+          updateCallout(ev.seat, ev.tile);
+          break;
+        case 'chi': case 'peng':
+          logLine('action', `${ev.type === 'chi' ? '吃牌' : '碰牌'} seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)} from=${NAMES[ev.from]}`);
+          playSound(ev.type);
+          break;
+        case 'gang':
+          logLine('action', `杠牌(${ev.kind}) seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)}`);
+          playSound('gang');
+          break;
+        case 'hu':
+          logLine('action', `胡牌 seat=${NAMES[ev.seat]} ${ev.source} tile=${C.tileLabel(ev.tile)}`);
+          playSound('hu');
+          break;
+        case 'pass':
+          logLine('action', `过牌 seat=${NAMES[ev.seat]}`);
+          break;
+        case 'draw-end':
+          logLine('action', '荒牌，牌墙已摸完');
+          break;
+        default:
+          break;
+      }
+    }
+    beforeCapture = null;
+    if (discardFx) {
+      const fx = discardFx;
+      render(true);
+      flyDiscard(fx.seat, fx.tile, fx.rect);
+    }
+  }
+  function updateCallout(seat, tile) {
+    const callout = $('discard-callout');
+    if (!callout) return;
+    callout.textContent = SEATS[seat] + ' · ' + NAMES[seat] + ' 打出 ' + C.tileLabel(tile);
+    callout.classList.remove('hidden');
+    callout.dataset.seat = String(seat);
+    clearTimeout(callout.__t);
+    callout.__t = setTimeout(() => callout.classList.add('hidden'), 2600);
+  }
+
+  /* ---------------- 人类操作 ---------------- */
+  function humanDiscard(index) {
+    if (busy || !state || state.phase !== C.PHASES.DISCARD || state.current !== 0) return;
+    beforeCapture = handRects[index] || null;
+    command('human', () => C.discardTile(state, 0, index));
+  }
+  function humanClaim(type, optionIndex) {
+    if (busy || !state || state.phase !== C.PHASES.CLAIM) return;
+    command('human', () => C.claimDiscard(state, 0, type, optionIndex || 0));
+  }
+  function humanPass() {
+    if (busy || !state || state.phase !== C.PHASES.CLAIM) return;
+    command('human', () => C.passClaim(state, 0));
+  }
+  function humanSelfKong(type, tile) {
+    if (busy || !state) return;
+    command('human', () => C.claimSelfKong(state, 0, type, tile));
+  }
+  function humanWin() {
+    if (busy || !state) return;
+    command('human', () => C.winSelf(state, 0));
+  }
+
+  /* ---------------- AI 调度 ---------------- */
+  function scheduleAi(a) {
+    if (aiTask && aiTask.epoch === epoch && aiTask.seat === a.seat && aiTask.kind === a.kind) return;
+    if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
+    const base = a.kind === 'claim' ? SPEED.claim : SPEED.discard;
+    const delay = Math.max(0, Math.round(base * speedScale));
+    const myEpoch = epoch;
+    const seat = a.seat, kind = a.kind;
+    const id = setTimeout(() => runAi(seat, kind, myEpoch), delay);
+    aiTask = { id, seat, kind, epoch: myEpoch, due: Date.now() + delay };
+    decisionAt = Date.now();
+    setActionBar('waiting:' + seat + kind, (bar) => addInfo(bar, NAMES[seat] + (kind === 'claim' ? ' 正在决定是否接牌…' : ' 正在出牌…')));
+  }
+  function runAi(seat, kind, myEpoch) {
+    aiTask = null;
+    if (myEpoch !== epoch) { logLine('action', '跳过过期 AI 任务'); return; }
+    if (!state || state.phase === C.PHASES.OVER) return;
+    const a = C.awaiting(state);
+    if (!a || a.seat !== seat || a.kind !== kind) {
+      logLine('action', `AI 任务与局面不符（task=${seat}:${kind}），重新同步`);
+      pump('stale-ai');
+      return;
+    }
+    const d = C.aiDecide(state, seat);
+    if (!d) { logLine('error', 'AI 没有可用决策'); pump('ai-null'); return; }
+    command('ai', () => C.applyDecision(state, d));
+  }
+
+  /* ---------------- 主循环 ---------------- */
+  function pump(reason) {
+    if (!state) return;
+    if (state.phase === C.PHASES.OVER) {
+      if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
+      decision = null;
+      barSig = 'over';
+      render(true);
+      settleRound();
+      showResult();
+      return;
+    }
+    const a = C.awaiting(state);
+    if (!a) {
+      logLine('error', `awaiting 为空但局面未结束 reason=${reason} | ${stateDigest()}`);
+      return;
+    }
+    render();
+    if (a.seat === 0 && !autoPlay) {
+      if (!decision || decision.kind !== a.kind) decisionAt = Date.now();
+      showHumanDecision(a);
+      return;
+    }
+    scheduleAi(a);
+  }
+  function heartbeatTick() {
+    if (!state || state.phase === C.PHASES.OVER) return;
+    const a = C.awaiting(state);
+    if (!a) return;
+    if (a.seat === 0 && !autoPlay) return;
+    const healthy = aiTask && aiTask.epoch === epoch;
+    const age = Date.now() - decisionAt;
+    if (healthy && age < 12000) return;
+    if (!healthy && age > STALL_MS) {
+      retryCount += 1;
+      logLine('recover', `检测到回合任务缺失，重新排程（第 ${retryCount} 次）| ${stateDigest()}`);
+      if (retryCount > MAX_RETRY) {
+        logLine('error', `连续 ${MAX_RETRY} 次无法推进回合，本局标记为异常 | ${stateDigest()}`);
+        abortRound('回合调度异常，已中止本局');
+        return;
+      }
+      if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
+      pump('heartbeat');
+    }
+  }
+  function abortRound(message) {
+    if (!state) return;
+    stopAi();
+    state.phase = C.PHASES.OVER;
+    state.result = { type: 'abort', title: '本局异常中止', detail: message };
+    render(true);
+    settleRound();
+    showResult();
+    toast(message);
+  }
+  function stopAi() {
+    if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
+    epoch += 1;
+  }
+
+  /* ---------------- 结算 ---------------- */
+  function settleRound() {
+    if (!state || state.phase !== C.PHASES.OVER || settledState === state) return;
+    for (let i = 0; i < 4; i++) balances[i] += state.scores[i];
+    settledState = state;
+    saveBankroll();
+    loadSeatBalances();
+    logLine('action', `本局结算 scores=${state.scores.join('/')} balances=${balances.join('/')}`);
+  }
+  function fmt(n) { return (n > 0 ? '+' : '') + n; }
+
+  function showResult() {
+    if (!state || !state.result) return;
+    const r = state.result;
+    $('result-icon').textContent = r.type === 'draw' ? '荒' : r.type === 'abort' ? '停' : '胡';
+    $('result-title').textContent = r.title;
+    const winner = Number.isInteger(r.seat) ? r.seat : -1;
+    $('result-detail').textContent = r.detail;
+    const box = $('result-winning');
+    box.innerHTML = '';
+    const layer = $('result-modal');
+    layer.classList.toggle('is-draw', r.type !== 'over' && !Number.isInteger(r.seat));
+
+    if (winner >= 0) {
+      const head = document.createElement('div');
+      head.className = 'result-win-head';
+      const badge = document.createElement('span');
+      badge.className = 'result-win-badge';
+      badge.textContent = r.winType || '胡牌';
+      const strong = document.createElement('b');
+      strong.textContent = NAMES[winner] + ' · ' + (r.winType || '胡牌') + ' · ' + (r.winningType || '');
+      const t = document.createElement('span');
+      t.className = 'result-win-tile';
+      t.textContent = '胡 ' + (r.winningTile === null || r.winningTile === undefined ? '—' : C.tileLabel(r.winningTile));
+      head.append(badge, strong, t);
+      box.appendChild(head);
+
+      const melds = r.melds || state.melds[winner] || [];
+      if (melds.length) {
+        const wrap = document.createElement('div');
+        wrap.className = 'result-block';
+        const lab = document.createElement('div');
+        lab.className = 'result-label';
+        lab.textContent = '副露（' + melds.length + ' 组）';
+        const list = document.createElement('div');
+        list.className = 'result-meld-list';
+        melds.forEach((m) => {
+          const g = document.createElement('div');
+          g.className = 'result-meld-group meld-' + m.type;
+          const kind = document.createElement('span');
+          kind.className = 'meld-label';
+          kind.textContent = meldLabelText(m);
+          g.appendChild(kind);
+          m.tiles.forEach((id, i) => {
+            const called = Number.isInteger(m.calledTileIndex) && i === m.calledTileIndex && !m.concealed;
+            g.appendChild(tileEl(id, called ? 'meld-called-tile' : ''));
+          });
+          list.appendChild(g);
+        });
+        wrap.append(lab, list);
+        box.appendChild(wrap);
+      }
+
+      const handWrap = document.createElement('div');
+      handWrap.className = 'result-block';
+      const handLab = document.createElement('div');
+      handLab.className = 'result-label';
+      handLab.textContent = '胡牌手牌（' + (r.winningHand || []).length + ' 张）';
+      const hand = document.createElement('div');
+      hand.className = 'result-hand';
+      const winTile = r.winningTile;
+      (r.winningHand || []).forEach((id, i) => {
+        const isWin = i === r.winningHand.length - 1 && id === winTile;
+        const el = tileEl(id, isWin ? 'winning-tile' : '');
+        hand.appendChild(el);
+      });
+      handWrap.append(handLab, hand);
+      box.appendChild(handWrap);
+    } else {
+      const head = document.createElement('div');
+      head.className = 'result-win-head';
+      const strong = document.createElement('b');
+      strong.textContent = r.type === 'abort' ? '本局已中止' : '本局荒牌';
+      head.appendChild(strong);
+      box.appendChild(head);
+    }
+
+    const rows = $('result-scores');
+    rows.innerHTML = '';
+    for (let i = 0; i < 4; i++) {
+      const row = document.createElement('div');
+      row.className = 'result-score' + (i === winner ? ' is-winner' : '');
+      const name = document.createElement('span');
+      name.className = 'result-score-name';
+      name.textContent = NAMES[i] + ' · ' + SEATS[i];
+      const delta = document.createElement('b');
+      delta.className = 'result-score-delta ' + (state.scores[i] > 0 ? 'plus' : state.scores[i] < 0 ? 'minus' : 'zero');
+      delta.textContent = fmt(state.scores[i]) + ' 分';
+      const bal = document.createElement('span');
+      bal.className = 'result-score-balance';
+      bal.textContent = '余额 ' + balances[i];
+      row.append(name, delta, bal);
+      rows.appendChild(row);
+    }
+    layer.classList.remove('hidden');
+    document.querySelector('.table-frame').classList.add('round-over');
+  }
+  function hideResult() {
+    $('result-modal').classList.add('hidden');
+    document.querySelector('.table-frame').classList.remove('round-over');
+  }
+
+  /* ---------------- 掷骰子 ---------------- */
+  const DIE_FACES = [
+    { name: 'front', value: 1, transform: 'translateZ(33px)' },
+    { name: 'back', value: 6, transform: 'rotateY(180deg) translateZ(33px)' },
+    { name: 'right', value: 3, transform: 'rotateY(90deg) translateZ(33px)' },
+    { name: 'left', value: 4, transform: 'rotateY(-90deg) translateZ(33px)' },
+    { name: 'top', value: 2, transform: 'rotateX(90deg) translateZ(33px)' },
+    { name: 'bottom', value: 5, transform: 'rotateX(-90deg) translateZ(33px)' }
+  ];
+  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  const SETTLED = {
+    1: 'rotateX(0deg) rotateY(0deg)',
+    2: 'rotateX(-90deg) rotateY(0deg)',
+    3: 'rotateX(0deg) rotateY(-90deg)',
+    4: 'rotateX(0deg) rotateY(90deg)',
+    5: 'rotateX(90deg) rotateY(0deg)',
+    6: 'rotateX(0deg) rotateY(180deg)'
+  };
+  function buildCube(id) {
+    const host = $(id);
+    if (!host) return null;
+    let cube = host.querySelector('.die-cube3d');
+    if (cube) return cube;
+    cube = document.createElement('div');
+    cube.className = 'die-cube3d';
+    DIE_FACES.forEach((face) => {
+      const panel = document.createElement('div');
+      panel.className = 'die-face die-' + face.name;
+      panel.dataset.face = String(face.value);
+      panel.style.transform = face.transform;
+      for (let i = 0; i < 9; i++) {
+        const dot = document.createElement('i');
+        if (PIPS[face.value].includes(i)) dot.className = 'on';
         panel.appendChild(dot);
       }
       cube.appendChild(panel);
     });
-    el.appendChild(cube);
+    host.appendChild(cube);
+    return cube;
   }
-  el.dataset.value=String(value);
-  const settled={1:'rotateX(0deg) rotateY(0deg)',2:'rotateX(-90deg) rotateY(0deg)',3:'rotateX(0deg) rotateY(-90deg)',4:'rotateX(0deg) rotateY(90deg)',5:'rotateX(90deg) rotateY(0deg)',6:'rotateX(0deg) rotateY(180deg)'};
-  if(!el.classList.contains('rolling'))cube.style.transform=settled[value]||settled[1];
-}
+  function setFace(id, value) {
+    const host = $(id);
+    const cube = buildCube(id);
+    if (!host || !cube) return;
+    host.dataset.value = String(value);
+    if (!host.classList.contains('rolling')) cube.style.transform = SETTLED[value] || SETTLED[1];
+  }
+  function rollDice(dice) {
+    return new Promise((resolve) => {
+      const overlay = $('dice-overlay');
+      overlay.classList.remove('hidden');
+      $('dice-outcome').textContent = '掷骰中…';
+      $('dice-subtitle').textContent = '点数决定庄家与开牌位置';
+      buildCube('dice-one'); buildCube('dice-two');
+      ['dice-one', 'dice-two'].forEach((id) => {
+        const host = $(id);
+        host.classList.add('rolling');
+        host.classList.remove('landed');
+      });
+      const spin = setInterval(() => {
+        ['dice-one', 'dice-two'].forEach((id) => {
+          const host = $(id);
+          const cube = host.querySelector('.die-cube3d');
+          if (cube) cube.style.transform = `rotateX(${Math.floor(Math.random() * 360)}deg) rotateY(${Math.floor(Math.random() * 360)}deg)`;
+        });
+      }, 90);
+      const rollMs = 1150 * speedScale;
+      setTimeout(() => {
+        clearInterval(spin);
+        ['dice-one', 'dice-two'].forEach((id, i) => {
+          const host = $(id);
+          host.classList.remove('rolling');
+          host.classList.add('landed');
+          // 记录真实点数：dataset 供视觉回归使用，同时保证正面就是掷出的点数
+          host.dataset.value = String(dice[i]);
+          const cube = buildCube(id);
+          // 先落到略过一点的角度，再回弹到真实点数，形成落桌感
+          cube.style.transition = 'transform .34s cubic-bezier(.3,.9,.4,1)';
+          cube.style.transform = SETTLED[dice[i]] ? SETTLED[dice[i]].replace(/(-?\d+)deg/g, (m, n) => (Number(n) + (n.startsWith('-') ? -12 : 12)) + 'deg') : SETTLED[1];
+          setTimeout(() => {
+            cube.style.transition = 'transform .26s cubic-bezier(.2,.8,.3,1)';
+            cube.style.transform = SETTLED[dice[i]];
+          }, 200);
+        });
+        const setup = C.diceSetup(dice);
+        $('dice-outcome').textContent = `点数 ${dice[0]} + ${dice[1]} = ${setup.sum} · ${NAMES[setup.dealer]} 坐庄`;
+        $('dice-subtitle').textContent = `从${setup.wallSide}墙第 ${setup.wallStack} 墩开牌`;
+        playSound('zhuang');
+        lastDice = { dice: dice.slice(), sum: setup.sum, dealer: setup.dealer, wallSide: setup.wallSide, wallStack: setup.wallStack };
+        setTimeout(() => {
+          overlay.classList.add('hidden');
+          resolve(setup);
+        }, 780 * speedScale);
+      }, rollMs);
+    });
+  }
 
-function markWallBreak(side){document.querySelectorAll('.wall-strip').forEach(x=>x.classList.remove('cut-wall'));const map={'南':'.wall-south','北':'.wall-north','西':'.wall-east','东':'.wall-west'};const e=document.querySelector(map[side]||'.wall-south');if(e)e.classList.add('cut-wall')}
-function markDealer(dealer){for(let i=0;i<4;i++){const seat=$('seat-'+i);if(!seat)continue;seat.classList.toggle('dealer-seat',i===dealer);const top=seat.querySelector('.seat-top');let mark=top.querySelector('.dealer-mark');if(i===dealer&&!mark){mark=document.createElement('span');mark.className='dealer-mark';mark.textContent='庄';top.appendChild(mark)}else if(i!==dealer&&mark)mark.remove()}}
-function newGame(){
-  clearTimer();clearTurnClock();if(diceTimer)clearTimeout(diceTimer);if(diceInterval)clearInterval(diceInterval);
-  state=null;waiting=false;activity=[];settledState=null;lastDiscardVisual=null;$('discard-callout').classList.add('hidden');$('result-modal').classList.add('hidden');
-  const dice=[1+Math.floor(Math.random()*6),1+Math.floor(Math.random()*6)],setup=C.diceSetup(dice),overlay=$('dice-overlay');
-  overlay.classList.remove('hidden');$('dice-outcome').textContent='正在掷骰…';$('dice-subtitle').textContent='骰子将决定庄家和开牌墙位';
-  setDiceFace('dice-one',1);setDiceFace('dice-two',1);$('dice-one').classList.add('rolling');$('dice-two').classList.add('rolling');
-  diceInterval=setInterval(()=>{setDiceFace('dice-one',1+Math.floor(Math.random()*6));setDiceFace('dice-two',1+Math.floor(Math.random()*6))},85);
-  diceTimer=setTimeout(()=>{
-    clearInterval(diceInterval);diceInterval=null;$('dice-one').classList.remove('rolling');$('dice-two').classList.remove('rolling');setDiceFace('dice-one',dice[0]);setDiceFace('dice-two',dice[1]);
-    $('dice-outcome').textContent='点数 '+dice[0]+' + '+dice[1]+' = '+setup.sum+' · '+NAMES[setup.dealer]+' 坐庄';
-    $('dice-subtitle').textContent='从'+setup.wallSide+'墙第 '+setup.wallStack+' 墩开牌';
-    playSound('庄');
-    diceTimer=setTimeout(()=>{
-      state=C.createGame(settings,Math.random,setup);waiting=false;activity=[];markDealer(state.dealer);markWallBreak(state.wallBreak.side);
-      $('dealer-label').textContent=NAMES[state.dealer]+' 坐庄 · '+state.wallBreak.side+'墙第'+state.wallBreak.stack+'墩';
-      $('turn-label').textContent=state.current===0?'轮到你出牌':'轮到'+NAMES[state.current]+'行动';
+  /* ---------------- 开局 ---------------- */
+  function newGame(options) {
+    const opts = options || {};
+    hideResult();
+    stopAi();
+    decision = null;
+    barSig = '';
+    renderSig = '';
+    settledState = null;
+    state = null;
+    const dice = [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
+    const play = () => {
+      const setup = C.createGame(settings, Math.random, C.diceSetup(dice));
+      state = setup;
+      state.__consumed = 0;
+      state.lastDiscard = null;
+      state.dice = dice.slice();
+      roundNo = Math.max(roundNo, 1);
+      saveRoundNo();
+      logLine('action', `开局 第${roundNo}局 dice=${dice.join('+')} dealer=${NAMES[state.dealer]} wallBreak=${state.wallBreak.side}${state.wallBreak.stack} 手牌=${state.hands.map((h) => h.length).join('/')} | ${stateDigest()}`);
+      $('last-action').textContent = '洗牌完成';
+      render(true);
+      pump('new-game');
+    };
+    if (opts.instant || autoPlay) {
       $('dice-overlay').classList.add('hidden');
-      addLog('骰子 '+dice[0]+'+'+dice[1]+'，'+NAMES[state.dealer]+' 坐庄，从'+state.wallBreak.side+'墙第'+state.wallBreak.stack+'墩开牌','庄');
-      render();if(state.current===0)renderSelfActions();else scheduleAi(650);
-    },620);
-  },1120);
-}
-function render(){
-  if(!state)return;if(state.phase==='over')settleRound();
-  $('wall-count').textContent='牌墙 '+state.wall.length;
-  $('hand-count').textContent=state.hands[0].length+' 张';
-  $('hand-tip').textContent=state.phase==='discard'&&state.current===0?'点击任意手牌出牌':state.phase==='over'?'本局已结束':'等待其他玩家操作';
-  loadSeatBalances();markDealer(state.dealer);
-  for(let s=0;s<4;s++){
-    $('seat-'+s).classList.toggle('active',state.phase==='discard'&&state.current===s);
-    renderBacks(s);renderMelds(s);renderDiscards(s);
+      play();
+      return Promise.resolve();
+    }
+    return rollDice(dice).then(play);
   }
-  renderHand();
-  $('turn-label').textContent=state.phase==='over'?'本局结束':state.phase==='reaction'?'有人打出牌，请选择操作':state.current===0?'轮到你出牌':'轮到'+NAMES[state.current]+'行动';
-  if(state.phase==='over')showResult();refreshTurnClock();
-}
-function renderBacks(s){if(s===0)return;const b=$('back-'+s);b.innerHTML='';for(let i=0;i<Math.min(state.hands[s].length,14);i++)b.appendChild(backEl())}
-function renderMelds(s){
-  const b=$('meld-'+s);b.innerHTML='';
-  state.melds[s].forEach(m=>{
-    const g=document.createElement('div');g.className='meld-group meld-'+m.type;
-    const tag=document.createElement('span');tag.className='meld-label';
-    const called=m.calledTile===undefined?null:m.calledTile;
-    tag.textContent=m.type==='chi'?'吃 '+C.tileLabel(called===null?m.tiles[0]:called):m.type==='peng'?'碰 '+C.tileLabel(called===null?m.tiles[0]:called):m.type==='gang'?'杠 '+C.tileLabel(called===null?m.tiles[0]:called):m.type;
-    tag.title=m.calledFrom===undefined?'本家副露':SEATS[m.calledFrom]+'打出的 '+(called===null?'':C.tileLabel(called));
-    g.appendChild(tag);
-    m.tiles.forEach((id,index)=>{
-      const e=tileEl(id,index===(Number.isInteger(m.calledTileIndex)?m.calledTileIndex:-1)?'meld-called-tile':'');
-      if(index===(Number.isInteger(m.calledTileIndex)?m.calledTileIndex:-1))e.title='接 '+C.tileLabel(id);
-      g.appendChild(e);
+
+  /* ---------------- 规则设置 ---------------- */
+  function openRules() {
+    $('setting-chi').checked = !!settings.chi;
+    $('setting-peng').checked = !!settings.peng;
+    $('setting-gang').checked = !!settings.gang;
+    $('setting-badHu').checked = !!settings.badHu;
+    $('rules-modal').classList.remove('hidden');
+  }
+  function closeRules() { $('rules-modal').classList.add('hidden'); }
+  function saveSettings() {
+    settings = {
+      chi: $('setting-chi').checked,
+      peng: $('setting-peng').checked,
+      gang: $('setting-gang').checked,
+      badHu: $('setting-badHu').checked
+    };
+    try { localStorage.setItem(KEY_SETTINGS, JSON.stringify(settings)); } catch (_) { /* ignore */ }
+    closeRules();
+    toast('规则已保存，新开一局后生效');
+    logLine('action', `设置更新 chi=${settings.chi} peng=${settings.peng} gang=${settings.gang} badHu=${settings.badHu}`);
+  }
+  let toastTimer = null;
+  function toast(msg) {
+    const e = $('toast');
+    if (!e) return;
+    e.textContent = msg;
+    e.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => e.classList.remove('show'), 2100);
+  }
+  function resetBankroll() {
+    balances = [100, 100, 100, 100];
+    saveBankroll();
+    loadSeatBalances();
+    showResult();
+    toast('四家积分已重置为 100');
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  function bind() {
+    $('sound-toggle').addEventListener('click', toggleSound);
+    document.addEventListener('pointerdown', () => {
+      audioReady = true;
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }, { once: true });
+    $('rules-open').addEventListener('click', () => { audioReady = true; playSound('ui'); openRules(); });
+    $('rules-open-2').addEventListener('click', () => { audioReady = true; playSound('ui'); openRules(); });
+    $('rules-close').addEventListener('click', closeRules);
+    $('rules-cancel').addEventListener('click', closeRules);
+    $('rules-save').addEventListener('click', saveSettings);
+    $('rules-modal').addEventListener('click', (e) => { if (e.target === $('rules-modal')) closeRules(); });
+    $('new-game').addEventListener('click', () => { audioReady = true; roundNo += 1; saveRoundNo(); newGame(); });
+    $('result-new').addEventListener('click', () => { roundNo += 1; saveRoundNo(); newGame(); });
+    $('reset-bankroll').addEventListener('click', resetBankroll);
+    const logToggle = $('log-toggle');
+    if (logToggle) {
+      logToggle.addEventListener('click', () => {
+        const panel = $('log-panel');
+        panel.classList.toggle('hidden');
+        logToggle.setAttribute('aria-expanded', String(!panel.classList.contains('hidden')));
+      });
+    }
+    const logClear = $('log-clear');
+    if (logClear) logClear.addEventListener('click', () => { LOGS.length = 0; const l = $('log-list'); if (l) l.innerHTML = ''; });
+  }
+
+  /* ---------------- 调试 / 测试接口 ---------------- */
+  function snapshot() {
+    if (!state) return null;
+    const a = C.awaiting(state);
+    return {
+      phase: state.phase, current: state.current, dealer: state.dealer, wall: state.wall.length,
+      hands: state.hands.map((h) => h.length), discards: state.discards.map((d) => d.length),
+      melds: state.melds.map((m) => m.length),
+      meldDetails: state.melds.map((ms) => ms.map((m) => ({
+        type: m.type, tiles: m.tiles.slice(), calledTile: m.calledTile,
+        calledTileIndex: m.calledTileIndex, calledFrom: m.calledFrom, concealed: !!m.concealed, added: !!m.added
+      }))),
+      scores: state.scores.slice(), balances: balances.slice(),
+      pending: state.pendingClaims.map((c) => ({ seat: c.seat, preferred: c.preferred, actions: c.actions.map((x) => x.type) })),
+      claimCursor: state.claimCursor, lastDiscard: state.lastDiscard, lastDraw: state.lastDraw,
+      awaiting: a ? { seat: a.seat, kind: a.kind } : null,
+      aiTask: aiTask ? { seat: aiTask.seat, kind: aiTask.kind, epoch: aiTask.epoch } : null,
+      epoch, result: state.result, settings, roundNo, lastDice,
+      logs: LOGS.slice(-40)
+    };
+  }
+  function waitFor(predicate, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const started = Date.now();
+      const tick = () => {
+        if (predicate()) return resolve(true);
+        if (Date.now() - started > timeoutMs) return reject(new Error('waitFor timeout: ' + stateDigest()));
+        setTimeout(tick, 20);
+      };
+      tick();
     });
-    b.appendChild(g);
-  });
-}
+  }
+  async function autoPlayGames(count, opts) {
+    const options = opts || {};
+    const prevScale = speedScale;
+    speedScale = options.speed === undefined ? 0 : options.speed;
+    autoPlay = true;
+    const games = [];
+    try {
+      for (let g = 0; g < count; g++) {
+        roundNo += 1;
+        saveRoundNo();
+        await newGame({ instant: true });
+        const started = Date.now();
+        await waitFor(() => state && state.phase === C.PHASES.OVER, options.timeout || 60000);
+        games.push({
+          round: roundNo, ms: Date.now() - started,
+          result: state.result && state.result.type,
+          winner: state.winner ? state.winner.seat : null,
+          scores: state.scores.slice(), wall: state.wall.length, turns: state.turnCount
+        });
+      }
+    } catch (err) {
+      games.push({ error: err.message, snapshot: snapshot() });
+    } finally {
+      autoPlay = false;
+      speedScale = prevScale;
+    }
+    return games;
+  }
+  function installDebugApi() {
+    const debug = (location.hostname === '127.0.0.1' || location.hostname === 'localhost' || location.search.includes('debug'));
+    if (!debug) return;
+    window.__shipingMahjongDebug = snapshot;
+    window.__shipingMahjongLogs = () => LOGS.slice();
+    window.__shipingMahjongAutoPlay = autoPlayGames;
+    window.__shipingMahjongSetSpeed = (v) => { speedScale = Number(v); return speedScale; };
+    /** 模拟「AI 定时任务丢失」：清掉任务但不推进状态，用于验证心跳自愈 */
+    window.__shipingMahjongDropAiTask = () => {
+      if (!state || state.phase === C.PHASES.OVER) return false;
+      const a = C.awaiting(state);
+      if (!a || a.seat === 0) return false;
+      if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
+      logLine('recover', '调试：人为丢弃 AI 任务');
+      return true;
+    };
+    /** 构造一次「吃牌」现场，返回期望的顺子信息，用于视觉回归 */
+    window.__shipingMahjongForceChi = () => {
+      if (!state) return null;
+      stopAi();
+      const from = 0, seat = C.nextSeat(0);
+      state.hands[seat] = [0, 1, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+      state.melds[seat] = [];
+      // 其他两家移除同名牌，保证「吃」是唯一的接牌方式，便于稳定复现
+      [1, 3].forEach((other) => {
+        const keep = state.hands[other].filter((x) => x !== 2);
+        const pool = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+        let i = 0;
+        while (keep.length < 13) keep.push(pool[(i++) % pool.length]);
+        state.hands[other] = keep.sort((a, b) => a - b);
+        state.melds[other] = [];
+      });
+      state.discards[from].push(2);
+      state.lastDiscard = { tile: 2, from };
+      state.phase = C.PHASES.CLAIM;
+      state.current = from;
+      state.pendingClaims = C.collectClaimCandidates(state);
+      state.claimCursor = 0;
+      state.__consumed = state.events.length;
+      epoch += 1;
+      pump('force-chi');
+      const cand = state.pendingClaims[0];
+      return { seat, tile: 2, claimSeat: cand ? cand.seat : null, actions: cand ? cand.actions.map((x) => x.type) : [] };
+    };
+    /** 构造四家副露现场（吃/碰/杠），用于副露视觉回归 */
+    window.__shipingMahjongForceMelds = () => {
+      if (!state) return null;
+      stopAi();
+      state.melds[0] = [
+        { type: 'peng', tiles: [5, 5, 5], from: 1, calledFrom: 1, calledTile: 5, calledTileIndex: 1 },
+        { type: 'chi', tiles: [20, 21, 22], from: 2, calledFrom: 2, calledTile: 21, calledTileIndex: 1 }
+      ];
+      state.melds[1] = [{ type: 'gang', tiles: [30, 30, 30, 30], from: 0, calledFrom: 0, calledTile: 30, calledTileIndex: 0 }];
+      state.melds[3] = [
+        { type: 'chi', tiles: [0, 1, 2], from: 0, calledFrom: 0, calledTile: 1, calledTileIndex: 1 },
+        { type: 'peng', tiles: [27, 27, 27], from: 1, calledFrom: 1, calledTile: 27, calledTileIndex: 1 }
+      ];
+      state.melds[2] = [
+        { type: 'chi', tiles: [9, 10, 11], from: 0, calledFrom: 0, calledTile: 10, calledTileIndex: 1 },
+        { type: 'gang', tiles: [18, 18, 18, 18], from: 1, calledFrom: 1, calledTile: 18, calledTileIndex: 0, concealed: true }
+      ];
+      render(true);
+      return state.melds.map((ms) => ms.length);
+    };
+    /** 构造一次胡牌结算展示，用于视觉回归 */
+    window.__shipingMahjongForceWin = () => {
+      if (!state) return null;
+      stopAi();
+      state.melds[0] = [
+        { type: 'chi', tiles: [4, 5, 6], from: 1, calledFrom: 1, calledTile: 5, calledTileIndex: 1 },
+        { type: 'peng', tiles: [18, 18, 18], from: 2, calledFrom: 2, calledTile: 18, calledTileIndex: 1 }
+      ];
+      const hand = [0, 1, 2, 9, 10, 11, 27, 27];
+      state.hands[0] = hand.slice();
+      state.phase = C.PHASES.OVER;
+      state.winner = { seat: 0, type: 'self', from: null };
+      state.scores = [9, -3, -3, -3];
+      state.result = {
+        type: 'self', seat: 0, title: '自摸胡', detail: '自摸胡牌，四家结算',
+        winType: '自摸', winningTile: 27, winningHand: hand.concat([27]).sort((a, b) => a - b),
+        winningType: '标准胡牌', melds: state.melds[0], roundScores: state.scores.slice()
+      };
+      settledState = null;
+      render(true);
+      settleRound();
+      showResult();
+      return state.result;
+    };
+    window.__shipingMahjongDiceFaces = () => {
+      const read = (id) => {
+        const host = $(id);
+        if (!host) return null;
+        const val = Number(host.dataset.value) || 0;
+        const face = host.querySelector('.die-face[data-face="' + val + '"]');
+        return { id, value: val, hasFace: !!face };
+      };
+      return { one: read('dice-one'), two: read('dice-two'), last: lastDice };
+    };
+  }
 
-function renderDiscards(s){const b=$('discards-'+s);b.innerHTML='';state.discards[s].forEach((id,index)=>{const recent=lastDiscardVisual&&lastDiscardVisual.seat===s&&lastDiscardVisual.index===index&&lastDiscardVisual.tile===id;const e=tileEl(id,recent?'latest-discard':'');if(recent)e.title=SEATS[s]+' '+NAMES[s]+' 打出 '+C.tileLabel(id);b.appendChild(e)})}
-function renderHand(){const b=$('hand-tiles');b.innerHTML='';const turn=state.phase==='discard'&&state.current===0,hand=state.hands[0];hand.forEach((id,i)=>{const drawn=state.lastDraw&&state.lastDraw.seat===0&&i===hand.length-1&&state.lastDraw.tile===id;const e=tileEl(id,(turn?'playable':'disabled')+(drawn?' drawn-tile':''));if(turn)e.addEventListener('click',()=>discardHuman(i));b.appendChild(e)})}
-function action(label,handler,type){const b=document.createElement('button');b.className='action-button action-'+type;b.textContent=label;b.addEventListener('click',()=>{audioReady=true;playSound('ui');handler()});$('action-bar').appendChild(b)}
-function renderSelfActions(){const b=$('action-bar');b.innerHTML='';if(state.phase!=='discard'||state.current!==0){const n=document.createElement('div');n.className='action-placeholder';n.textContent=state.phase==='over'?'本局已结束':'轮到你时，操作会显示在这里';b.appendChild(n);return}const o=C.selfActions(state,0);if(o.hu)action('自摸胡',()=>{try{C.winSelf(state,0);addLog('你自摸胡牌，+9 分','胡');render()}catch(e){toast(e.message)}},'hu');o.concealedKongs.forEach(id=>action('暗杠 '+C.tileLabel(id),()=>doKong('concealed',id),'gang'));o.addedKongs.forEach(id=>action('补杠 '+C.tileLabel(id),()=>doKong('added',id),'gang'));if(!o.hu&&!o.concealedKongs.length&&!o.addedKongs.length){const n=document.createElement('div');n.className='action-info';n.textContent='暂时没有可执行的胡牌或杠牌操作';b.appendChild(n)}const tip=document.createElement('div');tip.className='action-info';tip.textContent='选择一张手牌即可出牌';tip.style.marginLeft='auto';b.appendChild(tip)}
-function doKong(type,id){try{C.claimSelfKong(state,0,type,id);addLog('你'+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分并补牌','杠');render();if(state.phase!=='over')renderSelfActions()}catch(e){toast(e.message)}}
-function discardHuman(i){if(state.phase!=='discard'||state.current!==0)return;const id=state.hands[0][i],source=captureDiscardSource(0,i);C.discardTile(state,0,i);addLog('你打出'+C.tileLabel(id),'出');afterDiscard(0,id,source);processClaims()}
-function processClaims(){
-  if(!state||state.phase!=='reaction'||claimProcessing)return;
-  clearTimer();
-  claimProcessing=true;
-  try{
-    let guard=0;
-    while(state.phase==='reaction'&&guard++<8){
-      const candidate=state.pendingClaims[state.claimCursor];
-      if(!candidate){continueAfterDiscard();return}
-      if(candidate.seat===0){
-        waiting=true;renderClaim(candidate);
-        $('turn-label').textContent='你可以选择接牌或过';
-        return;
-      }
-      try{
-        const action=C.bestAiClaim(candidate);
-        if(!action){C.passClaim(state,candidate.seat);continue}
-        const tile=state.lastDiscard.tile;
-        C.claimDiscard(state,candidate.seat,action.type,action.optionIndex||0);
-        addLog(NAMES[candidate.seat]+(action.type==='hu'?'胡牌':action.type==='gang'?'明杠'+C.tileLabel(tile):action.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),action.type==='hu'?'胡':action.type==='gang'?'杠':action.type==='peng'?'碰':'吃');
-        render();
-        if(state.phase==='over')return;
-        if(state.current===0)renderSelfActions();
-        else scheduleAi(420);
-        return;
-      }catch(error){
-        console.error('AI 接牌处理失败，自动跳过该次接牌：',error);
-        try{C.passClaim(state,candidate.seat)}
-        catch(passError){
-          console.error('AI 过牌队列异常，推进接牌游标：',passError);
-          state.claimCursor++;
-        }
-      }
-    }
-    if(state.phase==='reaction'&&guard>=8){
-      console.error('接牌队列超过上限，自动推进摸牌');
-      continueAfterDiscard();
-    }
-  }catch(error){
-    console.error('接牌流程发生异常，执行恢复：',error);
-    if(state&&state.phase==='reaction'){
-      const pending=state.pendingClaims[state.claimCursor];
-      if(pending&&pending.seat===0){
-        waiting=true;renderClaim(pending);render();
-      }else{
-        state.claimCursor=state.pendingClaims.length;
-        continueAfterDiscard();
-      }
-    }
-  }finally{
-    claimProcessing=false;
+  /* ---------------- 启动 ---------------- */
+  function boot() {
+    syncSoundButton();
+    bind();
+    loadSeatBalances();
+    installDebugApi();
+    heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
+    newGame();
   }
-}
-function renderClaim(c){const b=$('action-bar');b.innerHTML='';const acts=c.actions,t=state.lastDiscard.tile;if(acts.some(x=>x.type==='hu'))action('胡牌',()=>doClaim('hu'),'hu');if(acts.some(x=>x.type==='gang'))action('明杠',()=>doClaim('gang'),'gang');if(acts.some(x=>x.type==='peng'))action('碰',()=>doClaim('peng'),'peng');const chi=acts.find(x=>x.type==='chi');if(chi)chi.options.forEach((o,i)=>action('吃 '+o.meld.map(C.tileLabel).join(' '),()=>doClaim('chi',i),'chi'));action('过',passHuman,'pass');const info=document.createElement('div');info.className='action-info';info.textContent='有人打出 '+C.tileLabel(t);b.prepend(info)}
-function doClaim(type,i){if(!waiting)return;const t=state.lastDiscard.tile;try{C.claimDiscard(state,0,type,i||0);waiting=false;addLog('你'+(type==='hu'?'胡牌':type==='gang'?'明杠'+C.tileLabel(t):type==='peng'?'碰'+C.tileLabel(t):'吃'+C.tileLabel(t)),type==='hu'?'胡':type==='gang'?'杠':type==='peng'?'碰':'吃');render();if(state.phase!=='over'&&state.current===0)renderSelfActions();else if(state.phase!=='over')scheduleAi(450)}catch(e){toast(e.message)}}
-function passHuman(){if(!waiting)return;waiting=false;C.passClaim(state,0);processClaims()}
-function continueAfterDiscard(){if(state.phase==='over')return;const from=state.lastDiscard?state.lastDiscard.from:state.current,next=C.nextSeat(from);if(!C.drawTile(state,next)){render();return}addLog(NAMES[next]+'摸牌','摸');render();if(next===0)renderSelfActions();else scheduleAi(420)}
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 
-function recoverAiTurn(error){
-  clearTimer();
-  console.error('AI 回合发生异常，启动自动恢复：',error);
-  try{
-    if(!state||state.phase==='over'){render();return}
-    if(state.phase==='reaction'){
-      const pending=state.pendingClaims[state.claimCursor];
-      if(pending&&pending.seat===0){waiting=true;renderClaim(pending);render();return}
-      processClaims();return;
-    }
-    if(state.phase==='discard'&&state.current!==0){
-      const seat=state.current,hand=state.hands[seat];
-      if(!hand.length){
-        const next=C.nextSeat(seat);
-        if(C.drawTile(state,next)){addLog(NAMES[next]+'补进下一回合，已自动恢复','摸');render();if(next!==0)scheduleAi(450);else renderSelfActions()}
-        else render();
-        return;
-      }
-      let index=C.chooseAiDiscard(hand);
-      if(!Number.isInteger(index)||index<0||index>=hand.length)index=hand.length-1;
-      const source=captureDiscardSource(seat,-1),tile=hand[index];C.discardTile(state,seat,index);
-      addLog(NAMES[seat]+'自动打出'+C.tileLabel(tile)+'（恢复操作）','出');
-      afterDiscard(seat,tile,source);processClaims();return;
-    }
-    render();
-  }catch(recoveryError){
-    console.error('AI 自动恢复再次失败：',recoveryError);
-    toast('电脑回合异常，已尝试恢复；请点击新开一局');
-    render();
-  }
-}
-function aiTurn(token,expectedSeat){
-  if(!state||state.phase!=='discard'||state.current===0||state.current!==expectedSeat){superviseGame();return}
-  timer=null;
-  timer=null;if(!state||state.phase!=='discard'||state.current===0)return;
-  try{
-    const seat=state.current,hand=state.hands[seat],o=C.selfActions(state,seat);
-    if(o.hu){C.winSelf(state,seat);addLog(NAMES[seat]+'自摸胡牌','胡');render();return}
-    if(o.concealedKongs.length||o.addedKongs.length){
-      const type=o.concealedKongs.length?'concealed':'added',id=o.concealedKongs[0]!==undefined?o.concealedKongs[0]:o.addedKongs[0];
-      C.claimSelfKong(state,seat,type,id);addLog(NAMES[seat]+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分','杠');render();if(state.phase!=='over')scheduleAi(300);return;
-    }
-    let index=C.chooseAiDiscard(hand);
-    if(!Number.isInteger(index)||index<0||index>=hand.length)index=hand.length-1;
-    if(index<0)throw new Error('AI 手牌为空，无法出牌');
-    const source=captureDiscardSource(seat,-1),tile=hand[index];C.discardTile(state,seat,index);
-    addLog(NAMES[seat]+'打出'+C.tileLabel(tile),'出');afterDiscard(seat,tile,source);processClaims();
-  }catch(error){recoverAiTurn(error)}
-}
-function showResult(){
-  if(!state.result)return;
-  $('result-icon').textContent=state.result.type==='draw'?'荒':'胡';
-  $('result-title').textContent=state.result.title;
-  const result=state.result,winning=$('result-winning');winning.innerHTML='';
-  if(Number.isInteger(result.seat)){
-    const title=document.createElement('div');title.className='result-winning-title';
-    title.textContent=NAMES[result.seat]+' · '+(result.winType||'胡牌')+' · '+(result.winningType||'胡牌');
-    const detail=document.createElement('div');detail.className='result-winning-text';
-    detail.textContent='胡牌：'+(result.winningTile===null||result.winningTile===undefined?'—':C.tileLabel(result.winningTile))+'；本局 '+fmt(state.scores[result.seat])+' 积分';
-    const meldBlock=document.createElement('div');meldBlock.className='result-melds';
-    const meldLabel=document.createElement('div');meldLabel.className='result-section-label';meldLabel.textContent='已亮副露';
-    const meldList=document.createElement('div');meldList.className='result-meld-list';
-    (state.melds[result.seat]||[]).forEach(meld=>{
-      const group=document.createElement('div');group.className='result-meld-group';
-      const kind=document.createElement('span');kind.className='result-meld-kind';kind.textContent=(meld.type==='gang'?'杠':meld.type==='peng'?'碰':'吃')+' '+C.tileLabel(meld.calledTile===undefined?meld.tiles[0]:meld.calledTile);group.appendChild(kind);
-      meld.tiles.forEach((tile,index)=>group.appendChild(tileEl(tile,index===(Number.isInteger(meld.calledTileIndex)?meld.calledTileIndex:-1)?'meld-called-tile':'')));
-      meldList.appendChild(group);
-    });
-    if((state.melds[result.seat]||[]).length)meldBlock.append(meldLabel,meldList);
-    const handBlock=document.createElement('div');handBlock.className='result-hand-block';
-    const handLabel=document.createElement('div');handLabel.className='result-section-label';handLabel.textContent='胡牌手牌';
-    const hand=document.createElement('div');hand.className='result-winning-hand';
-    (result.winningHand||[]).forEach((tile,index)=>{const e=tileEl(tile,index===result.winningHand.length-1&&tile===result.winningTile?'drawn-tile':'');hand.appendChild(e)});
-    handBlock.append(handLabel,hand);winning.append(title,detail,meldBlock,handBlock);
-  }else{
-    const title=document.createElement('div');title.className='result-winning-title';title.textContent='本局荒牌';
-    const detail=document.createElement('div');detail.className='result-winning-text';detail.textContent='没有玩家胡牌，本局杠分仍计入账户';winning.append(title,detail);
-  }
-  $('result-detail').textContent=result.detail+' · 四家本局合计 '+state.scores.reduce((a,b)=>a+b,0)+' 分';
-  const rows=$('result-scores');rows.innerHTML='';
-  for(let i=0;i<4;i++){
-    const row=document.createElement('div');row.className='result-score';
-    const label=document.createElement('span');label.textContent=NAMES[i]+' · 本局 '+fmt(state.scores[i])+' 分';
-    const delta=document.createElement('b');delta.textContent='余额 '+balances[i];delta.className='result-balance';
-    row.append(label,delta);rows.appendChild(row);
-  }
-  $('result-modal').classList.remove('hidden');
-}
-function resetBankroll(){balances=[100,100,100,100];saveBankroll();loadSeatBalances();showResult();toast('四家积分已重置为 100')}
-$('sound-toggle').addEventListener('click',toggleSound);
-document.addEventListener('pointerdown',()=>{audioReady=true;if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume()},{once:true});
-$('rules-open').addEventListener('click',()=>{audioReady=true;playSound('ui');openRules()});
-$('rules-open-2').addEventListener('click',()=>{audioReady=true;playSound('ui');openRules()});
-$('rules-close').addEventListener('click',closeRules);$('rules-cancel').addEventListener('click',closeRules);$('rules-save').addEventListener('click',saveSettings);
-$('new-game').addEventListener('click',()=>{audioReady=true;newGame()});
-$('result-new').addEventListener('click',()=>newGame());$('reset-bankroll').addEventListener('click',resetBankroll);
-$('rules-modal').addEventListener('click',e=>{if(e.target===$('rules-modal'))closeRules()});
-$('result-modal').addEventListener('click',e=>{if(e.target===$('result-modal'))$('result-modal').classList.add('hidden')});
-
-if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
-  window.__shipingMahjongDebugForceWin=()=>{
-    if(!state)return;
-    state.melds[0]=[{type:'peng',tiles:[8,8,8],from:1}];
-    state.phase='over';state.winner={seat:0,type:'self',from:null};
-    state.result={type:'self',seat:0,title:'自摸胡',detail:'测试胡牌展示',winType:'自摸',winningTile:33,winningHand:[0,1,2,9,10,11,18,19,20,27,28,29,30,33],winningType:'标准胡牌'};
-    state.scores=[9,-3,-3,-3];render();
+  window.__shipingMahjong = {
+    get state() { return state; },
+    get logs() { return LOGS; },
+    get decisions() { return { epoch, retryCount }; },
+    snapshot
   };
- }
-if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
-  window.__shipingMahjongDebugForceAiStall=()=>{
-    if(!state||state.phase==='over')return null;
-    const seat=2,before=state.discards[seat].length;
-    clearTimer();waiting=false;
-    state.phase='discard';state.current=seat;state.lastDiscard=null;
-    state.pendingClaims=[];state.claimCursor=0;
-    state.lastDraw={seat,tile:state.hands[seat].at(-1)};
-    render();return{seat,before};
-  };
-  window.__shipingMahjongDebugForceAiChi=()=>{
-    if(!state||state.phase==='over')return null;
-    clearTimer();waiting=false;
-    const from=0,seat=C.nextSeat(from),tile=2;
-    state.phase='reaction';state.current=from;state.lastDiscard={tile,from};
-    state.discards[from].push(tile);
-    state.hands[seat]=[0,1,4,5,8,9,10,11,12,13,14,15,16];
-    state.melds[seat]=[];
-    state.pendingClaims=C.collectClaimCandidates(state);state.claimCursor=0;
-    render();processClaims();
-    return{seat,tile};
-  };
- }
-window.__shipingMahjongDebug=()=>state?({
-  phase:state.phase,current:state.current,dealer:state.dealer,
-  wall:state.wall.length,hands:state.hands.map(h=>h.length),
-  discards:state.discards.map(p=>p.length),melds:state.melds.map(m=>m.length),meldDetails:state.melds.map(ms=>ms.map(m=>({type:m.type,tiles:m.tiles.slice(),calledTile:m.calledTile,calledTileIndex:m.calledTileIndex,calledFrom:m.calledFrom}))),
-  pending:state.pendingClaims.map(c=>({seat:c.seat,preferred:c.preferred,actions:c.actions.map(a=>a.type)})),
-  claimCursor:state.claimCursor,lastDiscard:state.lastDiscard,
-  waiting,claimProcessing,aiScheduledSeat,aiScheduledAge:aiScheduledAt?Date.now()-aiScheduledAt:null,aiTimerActive:!!timer,aiWatchdogActive:!!aiWatchdog,supervisorActive:!!supervisorTimer,activeHand:state.hands[state.current].slice(),aiDiscardProbe:(()=>{try{return C.chooseAiDiscard(state.hands[state.current])}catch(e){return 'ERROR: '+e.message}})(),history:state.history.slice(-12)
-}):null;
-syncSoundButton();loadSeatBalances();supervisorTimer=setInterval(superviseGame,650);newGame();
 })();
