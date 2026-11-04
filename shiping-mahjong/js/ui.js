@@ -2,7 +2,7 @@
 const C=window.ShipingMahjongCore,$=id=>document.getElementById(id);
 const NAMES=['你','老李','阿梅','小赵'],SEATS=['南家','北家','西家','东家'];
 const SETTINGS_KEY='shiping-mahjong-settings-v1',SOUND_KEY='shiping-mahjong-sound-v1',BANKROLL_KEY='shiping-mahjong-bankroll-v1';
-let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[],aiWatchdog=null,aiToken=0,lastDiscardVisual=null;
+let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[],aiWatchdog=null,aiToken=0,aiScheduledAt=0,aiScheduledSeat=null,claimProcessing=false,supervisorTimer=null,lastDiscardVisual=null;
 let diceTimer=null,diceInterval=null,settledState=null,balances=loadBankroll(),soundEnabled=loadSoundSetting(),audioReady=false,audioCtx=null;
 
 function loadSettings(){try{return Object.assign({chi:true,peng:true,gang:true,badHu:true},JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}'))}catch(_){return{chi:true,peng:true,gang:true,badHu:true}}}
@@ -46,42 +46,79 @@ function animateDiscard(seat,tile,source){
 }
 function addLog(txt,mark='•'){activity.unshift({text:txt,marker:mark,time:new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})});activity=activity.slice(0,16);renderLog();const last=$('last-action');if(last)last.textContent=txt;playSound(mark)}
 function renderLog(){const b=$('activity-list');if(!b)return;b.innerHTML='';if(!activity.length){b.innerHTML='<div class="activity-empty">牌局开始后，出牌和操作会显示在这里。</div>';return}activity.forEach(x=>{const row=document.createElement('div');row.className='activity-item';const m=document.createElement('div');m.className='activity-marker';m.textContent=x.marker;const body=document.createElement('div');body.textContent=x.text;const t=document.createElement('span');t.className='activity-time';t.textContent=x.time;body.appendChild(t);row.append(m,body);b.appendChild(row)})}
-function clearTimer(){if(timer)clearTimeout(timer);timer=null;if(aiWatchdog)clearTimeout(aiWatchdog);aiWatchdog=null;aiToken++}
-function watchdogAiProgress(token){
+function clearTimer(){
+  if(timer)clearTimeout(timer);timer=null;
+  if(aiWatchdog)clearTimeout(aiWatchdog);aiWatchdog=null;
+  aiScheduledAt=0;aiScheduledSeat=null;aiToken++;
+}
+function scheduleAi(ms){
+  if(!state||state.phase!=='discard'||state.current===0||state.phase==='over')return;
+  if(timer)clearTimeout(timer);
+  if(aiWatchdog)clearTimeout(aiWatchdog);
+  const token=++aiToken,seat=state.current,delay=Number.isFinite(ms)?ms:420;
+  aiScheduledSeat=seat;aiScheduledAt=Date.now();
+  $('turn-label').textContent=NAMES[seat]+' 思考中…';
+  timer=setTimeout(()=>{
+    if(token!==aiToken)return;
+    timer=null;
+    aiTurn(token,seat);
+  },delay);
+  aiWatchdog=setTimeout(()=>watchdogAiProgress(token,seat),1700);
+}
+function watchdogAiProgress(token,seat){
   if(token!==aiToken)return;
   aiWatchdog=null;
   if(!state||state.phase==='over')return;
   if(state.phase==='reaction'){
     const pending=state.pendingClaims[state.claimCursor];
-    if(pending&&pending.seat!==0){
-      try{C.passClaim(state,pending.seat);processClaims()}catch(error){recoverAiTurn(error)}
-    }else if(!pending)continueAfterDiscard();
+    if(pending&&pending.seat===0){
+      if(!waiting){waiting=true;renderClaim(pending);render()}
+      return;
+    }
+    processClaims();
     return;
   }
-  if(state.phase!=='discard'||state.current===0)return;
-  const seat=state.current,hand=state.hands[seat];
-  if(!hand||!hand.length){
-    recoverAiTurn(new Error('AI 看门狗检测到空手牌'));
-    return;
+  if(state.phase==='discard'&&state.current!==0&&state.current===seat){
+    recoverAiTurn(new Error(NAMES[seat]+'的电脑回合超过响应时限，执行强制恢复'));
   }
-  let index=hand.length-1;
-  try{
-    const suggested=C.chooseAiDiscard(hand);
-    if(Number.isInteger(suggested)&&suggested>=0&&suggested<hand.length)index=suggested;
-  }catch(error){console.error('AI 选牌异常，使用最后一张牌兜底：',error)}
-  try{
-    const source=captureDiscardSource(seat,-1),tile=hand[index];
-    C.discardTile(state,seat,index);
-    addLog(NAMES[seat]+'超时自动打出'+C.tileLabel(tile),'出');
-    afterDiscard(seat,tile,source);processClaims();
-  }catch(error){recoverAiTurn(error)}
 }
-function scheduleAi(ms){
-  if(timer)clearTimeout(timer);
-  if(aiWatchdog)clearTimeout(aiWatchdog);
-  const token=++aiToken,delay=ms||400;
-  timer=setTimeout(()=>{if(token!==aiToken)return;timer=null;aiTurn(token)},delay);
-  aiWatchdog=setTimeout(()=>watchdogAiProgress(token),2200);
+function superviseGame(){
+  if(!state)return;
+  if(state.phase==='over'){
+    if(timer||aiWatchdog)clearTimer();
+    return;
+  }
+  if(state.phase==='reaction'){
+    const pending=state.pendingClaims[state.claimCursor];
+    if(pending&&pending.seat===0){
+      if(timer||aiWatchdog)clearTimer();
+      if(!waiting){waiting=true;renderClaim(pending);render()}
+      return;
+    }
+    if(timer||aiWatchdog)clearTimer();
+    if(!claimProcessing)processClaims();
+    return;
+  }
+  if(state.phase!=='discard')return;
+  if(state.current===0){
+    if(timer||aiWatchdog)clearTimer();
+    return;
+  }
+  const age=aiScheduledAt?Date.now()-aiScheduledAt:0;
+  const wrongSeat=aiScheduledSeat!==state.current;
+  if(wrongSeat){
+    scheduleAi(120);
+    return;
+  }
+  if(!timer&&!aiWatchdog){
+    if(age>2400)recoverAiTurn(new Error('检测到电脑回合没有后续任务，自动恢复'));
+    else scheduleAi(120);
+    return;
+  }
+  if(age>3200){
+    clearTimer();
+    recoverAiTurn(new Error('电脑回合任务超时，自动恢复'));
+  }
 }
 function clearTurnClock(){if(turnClock)clearInterval(turnClock);turnClock=null}
 function refreshTurnClock(){clearTurnClock();const e=$('turn-clock');if(!e)return;turnSeconds=15;e.textContent='15';if(!state||state.phase!=='discard'||state.current!==0)return;turnClock=setInterval(()=>{if(!state||state.phase!=='discard'||state.current!==0){clearTurnClock();return}turnSeconds=Math.max(0,turnSeconds-1);e.textContent=String(turnSeconds).padStart(2,'0');if(turnSeconds===0)clearTurnClock()},1000)}
@@ -125,7 +162,24 @@ function render(){
   if(state.phase==='over')showResult();refreshTurnClock();
 }
 function renderBacks(s){if(s===0)return;const b=$('back-'+s);b.innerHTML='';for(let i=0;i<Math.min(state.hands[s].length,14);i++)b.appendChild(backEl())}
-function renderMelds(s){const b=$('meld-'+s);b.innerHTML='';state.melds[s].forEach(m=>{const g=document.createElement('div');g.className='meld-group';m.tiles.forEach(id=>g.appendChild(tileEl(id)));b.appendChild(g)})}
+function renderMelds(s){
+  const b=$('meld-'+s);b.innerHTML='';
+  state.melds[s].forEach(m=>{
+    const g=document.createElement('div');g.className='meld-group meld-'+m.type;
+    const tag=document.createElement('span');tag.className='meld-label';
+    const called=m.calledTile===undefined?null:m.calledTile;
+    tag.textContent=m.type==='chi'?'吃 '+C.tileLabel(called===null?m.tiles[0]:called):m.type==='peng'?'碰 '+C.tileLabel(called===null?m.tiles[0]:called):m.type==='gang'?'杠 '+C.tileLabel(called===null?m.tiles[0]:called):m.type;
+    tag.title=m.calledFrom===undefined?'本家副露':SEATS[m.calledFrom]+'打出的 '+(called===null?'':C.tileLabel(called));
+    g.appendChild(tag);
+    m.tiles.forEach((id,index)=>{
+      const e=tileEl(id,index===(Number.isInteger(m.calledTileIndex)?m.calledTileIndex:-1)?'meld-called-tile':'');
+      if(index===(Number.isInteger(m.calledTileIndex)?m.calledTileIndex:-1))e.title='接 '+C.tileLabel(id);
+      g.appendChild(e);
+    });
+    b.appendChild(g);
+  });
+}
+
 function renderDiscards(s){const b=$('discards-'+s);b.innerHTML='';state.discards[s].forEach((id,index)=>{const recent=lastDiscardVisual&&lastDiscardVisual.seat===s&&lastDiscardVisual.index===index&&lastDiscardVisual.tile===id;const e=tileEl(id,recent?'latest-discard':'');if(recent)e.title=SEATS[s]+' '+NAMES[s]+' 打出 '+C.tileLabel(id);b.appendChild(e)})}
 function renderHand(){const b=$('hand-tiles');b.innerHTML='';const turn=state.phase==='discard'&&state.current===0,hand=state.hands[0];hand.forEach((id,i)=>{const drawn=state.lastDraw&&state.lastDraw.seat===0&&i===hand.length-1&&state.lastDraw.tile===id;const e=tileEl(id,(turn?'playable':'disabled')+(drawn?' drawn-tile':''));if(turn)e.addEventListener('click',()=>discardHuman(i));b.appendChild(e)})}
 function action(label,handler,type){const b=document.createElement('button');b.className='action-button action-'+type;b.textContent=label;b.addEventListener('click',()=>{audioReady=true;playSound('ui');handler()});$('action-bar').appendChild(b)}
@@ -133,30 +187,57 @@ function renderSelfActions(){const b=$('action-bar');b.innerHTML='';if(state.pha
 function doKong(type,id){try{C.claimSelfKong(state,0,type,id);addLog('你'+(type==='concealed'?'暗杠':'补杠')+C.tileLabel(id)+'，+3 分并补牌','杠');render();if(state.phase!=='over')renderSelfActions()}catch(e){toast(e.message)}}
 function discardHuman(i){if(state.phase!=='discard'||state.current!==0)return;const id=state.hands[0][i],source=captureDiscardSource(0,i);C.discardTile(state,0,i);addLog('你打出'+C.tileLabel(id),'出');afterDiscard(0,id,source);processClaims()}
 function processClaims(){
-  if(!state||state.phase!=='reaction')return;
-  let guard=0;
-  while(state.phase==='reaction'&&guard++<8){
-    const candidate=state.pendingClaims[state.claimCursor];
-    if(!candidate){continueAfterDiscard();return}
-    if(candidate.seat===0){waiting=true;renderClaim(candidate);$('turn-label').textContent='你可以选择接牌或过';return}
-    try{
-      const action=C.bestAiClaim(candidate);
-      if(!action){C.passClaim(state,candidate.seat);continue}
-      const tile=state.lastDiscard.tile;
-      C.claimDiscard(state,candidate.seat,action.type,action.optionIndex||0);
-      addLog(NAMES[candidate.seat]+(action.type==='hu'?'胡牌':action.type==='gang'?'明杠'+C.tileLabel(tile):action.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),action.type==='hu'?'胡':action.type==='gang'?'杠':action.type==='peng'?'碰':'吃');
-      render();if(state.phase==='over')return;
-      if(state.current===0)renderSelfActions();else scheduleAi(450);
-      return;
-    }catch(error){
-      console.error('AI 接牌处理失败，自动跳过该次接牌：',error);
-      try{C.passClaim(state,candidate.seat)}catch(passError){
-        console.error('AI 过牌队列异常，强制推进接牌游标：',passError);
-        state.claimCursor++;
+  if(!state||state.phase!=='reaction'||claimProcessing)return;
+  clearTimer();
+  claimProcessing=true;
+  try{
+    let guard=0;
+    while(state.phase==='reaction'&&guard++<8){
+      const candidate=state.pendingClaims[state.claimCursor];
+      if(!candidate){continueAfterDiscard();return}
+      if(candidate.seat===0){
+        waiting=true;renderClaim(candidate);
+        $('turn-label').textContent='你可以选择接牌或过';
+        return;
+      }
+      try{
+        const action=C.bestAiClaim(candidate);
+        if(!action){C.passClaim(state,candidate.seat);continue}
+        const tile=state.lastDiscard.tile;
+        C.claimDiscard(state,candidate.seat,action.type,action.optionIndex||0);
+        addLog(NAMES[candidate.seat]+(action.type==='hu'?'胡牌':action.type==='gang'?'明杠'+C.tileLabel(tile):action.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),action.type==='hu'?'胡':action.type==='gang'?'杠':action.type==='peng'?'碰':'吃');
+        render();
+        if(state.phase==='over')return;
+        if(state.current===0)renderSelfActions();
+        else scheduleAi(420);
+        return;
+      }catch(error){
+        console.error('AI 接牌处理失败，自动跳过该次接牌：',error);
+        try{C.passClaim(state,candidate.seat)}
+        catch(passError){
+          console.error('AI 过牌队列异常，推进接牌游标：',passError);
+          state.claimCursor++;
+        }
       }
     }
+    if(state.phase==='reaction'&&guard>=8){
+      console.error('接牌队列超过上限，自动推进摸牌');
+      continueAfterDiscard();
+    }
+  }catch(error){
+    console.error('接牌流程发生异常，执行恢复：',error);
+    if(state&&state.phase==='reaction'){
+      const pending=state.pendingClaims[state.claimCursor];
+      if(pending&&pending.seat===0){
+        waiting=true;renderClaim(pending);render();
+      }else{
+        state.claimCursor=state.pendingClaims.length;
+        continueAfterDiscard();
+      }
+    }
+  }finally{
+    claimProcessing=false;
   }
-  if(state.phase==='reaction'&&guard>=8){console.error('接牌队列异常，自动恢复');continueAfterDiscard()}
 }
 function renderClaim(c){const b=$('action-bar');b.innerHTML='';const acts=c.actions,t=state.lastDiscard.tile;if(acts.some(x=>x.type==='hu'))action('胡牌',()=>doClaim('hu'),'hu');if(acts.some(x=>x.type==='gang'))action('明杠',()=>doClaim('gang'),'gang');if(acts.some(x=>x.type==='peng'))action('碰',()=>doClaim('peng'),'peng');const chi=acts.find(x=>x.type==='chi');if(chi)chi.options.forEach((o,i)=>action('吃 '+o.meld.map(C.tileLabel).join(' '),()=>doClaim('chi',i),'chi'));action('过',passHuman,'pass');const info=document.createElement('div');info.className='action-info';info.textContent='有人打出 '+C.tileLabel(t);b.prepend(info)}
 function doClaim(type,i){if(!waiting)return;const t=state.lastDiscard.tile;try{C.claimDiscard(state,0,type,i||0);waiting=false;addLog('你'+(type==='hu'?'胡牌':type==='gang'?'明杠'+C.tileLabel(t):type==='peng'?'碰'+C.tileLabel(t):'吃'+C.tileLabel(t)),type==='hu'?'胡':type==='gang'?'杠':type==='peng'?'碰':'吃');render();if(state.phase!=='over'&&state.current===0)renderSelfActions();else if(state.phase!=='over')scheduleAi(450)}catch(e){toast(e.message)}}
@@ -164,14 +245,14 @@ function passHuman(){if(!waiting)return;waiting=false;C.passClaim(state,0);proce
 function continueAfterDiscard(){if(state.phase==='over')return;const from=state.lastDiscard?state.lastDiscard.from:state.current,next=C.nextSeat(from);if(!C.drawTile(state,next)){render();return}addLog(NAMES[next]+'摸牌','摸');render();if(next===0)renderSelfActions();else scheduleAi(420)}
 
 function recoverAiTurn(error){
+  clearTimer();
   console.error('AI 回合发生异常，启动自动恢复：',error);
   try{
     if(!state||state.phase==='over'){render();return}
     if(state.phase==='reaction'){
       const pending=state.pendingClaims[state.claimCursor];
-      if(pending&&pending.seat!==0){C.passClaim(state,pending.seat);processClaims();return}
-      if(!pending){continueAfterDiscard();return}
-      waiting=true;renderClaim(pending);render();return;
+      if(pending&&pending.seat===0){waiting=true;renderClaim(pending);render();return}
+      processClaims();return;
     }
     if(state.phase==='discard'&&state.current!==0){
       const seat=state.current,hand=state.hands[seat];
@@ -194,7 +275,9 @@ function recoverAiTurn(error){
     render();
   }
 }
-function aiTurn(token){
+function aiTurn(token,expectedSeat){
+  if(!state||state.phase!=='discard'||state.current===0||state.current!==expectedSeat){superviseGame();return}
+  timer=null;
   timer=null;if(!state||state.phase!=='discard'||state.current===0)return;
   try{
     const seat=state.current,hand=state.hands[seat],o=C.selfActions(state,seat);
@@ -269,13 +352,35 @@ if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
     state.scores=[9,-3,-3,-3];render();
   };
  }
+if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
+  window.__shipingMahjongDebugForceAiStall=()=>{
+    if(!state||state.phase==='over')return null;
+    const seat=state.current===0?C.nextSeat(0):state.current;
+    clearTimer();
+    if(state.hands[seat].length===13)C.drawTile(state,seat);
+    else{state.current=seat;state.phase='discard';state.lastDraw={seat,tile:state.hands[seat].at(-1)}}
+    render();return seat;
+  };
+  window.__shipingMahjongDebugForceAiChi=()=>{
+    if(!state||state.phase==='over')return null;
+    clearTimer();waiting=false;
+    const from=0,seat=C.nextSeat(from),tile=2;
+    state.phase='reaction';state.current=from;state.lastDiscard={tile,from};
+    state.discards[from].push(tile);
+    state.hands[seat]=[0,1,4,5,8,9,10,11,12,13,14,15,16];
+    state.melds[seat]=[];
+    state.pendingClaims=C.collectClaimCandidates(state);state.claimCursor=0;
+    render();processClaims();
+    return{seat,tile};
+  };
+ }
 window.__shipingMahjongDebug=()=>state?({
   phase:state.phase,current:state.current,dealer:state.dealer,
   wall:state.wall.length,hands:state.hands.map(h=>h.length),
   discards:state.discards.map(p=>p.length),melds:state.melds.map(m=>m.length),
   pending:state.pendingClaims.map(c=>({seat:c.seat,preferred:c.preferred,actions:c.actions.map(a=>a.type)})),
   claimCursor:state.claimCursor,lastDiscard:state.lastDiscard,
-  waiting,aiTimerActive:!!timer,aiWatchdogActive:!!aiWatchdog,activeHand:state.hands[state.current].slice(),aiDiscardProbe:(()=>{try{return C.chooseAiDiscard(state.hands[state.current])}catch(e){return 'ERROR: '+e.message}})(),history:state.history.slice(-12)
+  waiting,claimProcessing,aiScheduledSeat,aiScheduledAge:aiScheduledAt?Date.now()-aiScheduledAt:null,aiTimerActive:!!timer,aiWatchdogActive:!!aiWatchdog,supervisorActive:!!supervisorTimer,activeHand:state.hands[state.current].slice(),aiDiscardProbe:(()=>{try{return C.chooseAiDiscard(state.hands[state.current])}catch(e){return 'ERROR: '+e.message}})(),history:state.history.slice(-12)
 }):null;
-syncSoundButton();loadSeatBalances();newGame();
+syncSoundButton();loadSeatBalances();supervisorTimer=setInterval(superviseGame,650);newGame();
 })();
