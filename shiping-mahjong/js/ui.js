@@ -188,5 +188,14 @@ $('new-game').addEventListener('click',()=>{audioReady=true;newGame()});
 $('result-new').addEventListener('click',()=>newGame());$('reset-bankroll').addEventListener('click',resetBankroll);
 $('rules-modal').addEventListener('click',e=>{if(e.target===$('rules-modal'))closeRules()});
 $('result-modal').addEventListener('click',e=>{if(e.target===$('result-modal'))$('result-modal').classList.add('hidden')});
+
+window.__shipingMahjongDebug=()=>state?({
+  phase:state.phase,current:state.current,dealer:state.dealer,
+  wall:state.wall.length,hands:state.hands.map(h=>h.length),
+  discards:state.discards.map(p=>p.length),melds:state.melds.map(m=>m.length),
+  pending:state.pendingClaims.map(c=>({seat:c.seat,preferred:c.preferred,actions:c.actions.map(a=>a.type)})),
+  claimCursor:state.claimCursor,lastDiscard:state.lastDiscard,
+  waiting,aiTimerActive:!!timer,history:state.history.slice(-12)
+}):null;
 syncSoundButton();loadSeatBalances();newGame();
 })();
