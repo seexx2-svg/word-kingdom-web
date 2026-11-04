@@ -121,6 +121,25 @@ test('四家按东南西北顺序轮流出牌，不会跳过北家',()=>{
   for(let seat=0;seat<4;seat++)assert.ok(g.discards[seat].length>=4, 'seat '+seat+' did not discard');
 });
 
+test('吃碰明杠副露记录来源和被接的具体牌',()=>{
+  const chi=C.createGame({chi:true,peng:false,gang:false,badHu:false},seeded(940));
+  chi.phase='reaction';chi.lastDiscard={tile:2,from:0};chi.discards[0].push(2);
+  chi.hands[2]=[0,1,3,4,8,9,10,11,12,13,14,15,16];
+  C.claimDiscard(chi,2,'chi',0);
+  const cm=chi.melds[2][0];
+  assert.equal(cm.type,'chi');
+  assert.equal(cm.calledTile,2);
+  assert.equal(cm.calledFrom,0);
+  assert.equal(cm.calledTileIndex,cm.tiles.indexOf(2));
+
+  const peng=C.createGame({chi:false,peng:true,gang:false,badHu:false},seeded(941));
+  peng.phase='reaction';peng.lastDiscard={tile:8,from:3};peng.discards[3].push(8);
+  peng.hands[1]=[8,8,0,1,2,3,4,5,9,10,11,12,13];
+  C.claimDiscard(peng,1,'peng');
+  assert.equal(peng.melds[1][0].calledTile,8);
+  assert.equal(peng.melds[1][0].calledFrom,3);
+  assert.equal(peng.melds[1][0].calledTileIndex,0);
+});
 test('标准胡牌：4副+1将',()=>{
   const h=[0,1,2,9,10,11,18,19,20,27,27,27,33,33];
   assert.equal(C.isStandardHu(h),true);
