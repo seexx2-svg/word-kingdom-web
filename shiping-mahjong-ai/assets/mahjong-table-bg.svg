@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+<defs>
+ <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#67c5ed"/><stop offset=".55" stop-color="#bde7e6"/><stop offset="1" stop-color="#f3e4b3"/></linearGradient>
+ <linearGradient id="river" x2="0" y2="1"><stop stop-color="#63d0d3"/><stop offset="1" stop-color="#2d94a4"/></linearGradient>
+ <linearGradient id="felt" x2="0" y2="1"><stop stop-color="#148452"/><stop offset=".5" stop-color="#087044"/><stop offset="1" stop-color="#03462e"/></linearGradient>
+ <linearGradient id="wood" x2="0" y2="1"><stop stop-color="#f3c77d"/><stop offset=".18" stop-color="#985a2c"/><stop offset=".46" stop-color="#d28c4e"/><stop offset=".7" stop-color="#6f3e22"/><stop offset="1" stop-color="#3a2419"/></linearGradient>
+ <linearGradient id="gold" x2="0" y2="1"><stop stop-color="#fff0b2"/><stop offset=".5" stop-color="#c28a3e"/><stop offset="1" stop-color="#71431e"/></linearGradient>
+ <pattern id="grain" width="26" height="18" patternUnits="userSpaceOnUse"><path d="M0 7 Q8 2 18 8 T26 7" fill="none" stroke="#d7f4d0" stroke-opacity=".13" stroke-width="1"/></pattern>
+ <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="13"/></filter>
+</defs>
+<rect width="1600" height="900" fill="url(#sky)"/>
+<path d="M0 167 Q140 80 280 143 T560 124 T850 142 T1130 106 T1390 135 T1600 120 V280 H0Z" fill="#5d9a4d"/>
+<path d="M0 198 Q180 110 380 187 T760 164 T1110 178 T1450 152 T1600 185 V300 H0Z" fill="#2f783c"/>
+<path d="M0 226 Q210 168 405 219 T800 203 T1190 211 T1600 198 V325 H0Z" fill="#9dc879"/>
+<path d="M0 231 Q170 210 300 235 T590 228 T900 244 T1240 225 T1600 230 V310 H0Z" fill="#3d8b70"/>
+<path d="M0 241 Q210 214 360 241 T740 244 T1090 233 T1450 248 T1600 236 V325 H0Z" fill="url(#river)"/>
+<path d="M260 233 Q345 185 424 235 Q500 276 570 231" fill="none" stroke="#f3e1bb" stroke-width="12"/>
+<path d="M260 229 Q345 181 424 231 Q500 272 570 227" fill="none" stroke="#8d5b36" stroke-width="7"/>
+<g fill="#fff" opacity=".35"><path d="M130 72q26-30 53 0q31-25 59 9H112q-10-7 18-9"/><path d="M650 50q24-26 49 0q31-28 61 10H633q-5-8 17-10"/><path d="M1200 65q29-30 57 0q30-24 56 7h-131q-5-6 18-7"/></g>
+<g fill="#4c6c42" opacity=".95"><path d="M0 240l50-80 42 80 36-70 48 70 44-96 48 96v85H0z"/><path d="M1500 245l36-76 32 76 30-60 34 60v80h-132z"/></g>
+<g fill="#f3dfc0" opacity=".85"><path d="M320 218l35-40 36 40z"/><path d="M355 218v-57h8v57"/><path d="M980 218l38-46 40 46z"/><path d="M1016 218v-62h8v62"/><path d="M1260 223l28-34 29 34z"/></g>
+<!-- pavilion columns and lanterns -->
+<rect x="0" y="0" width="52" height="275" fill="#4d2d1e"/><rect x="9" y="0" width="11" height="276" fill="#a76a39"/><rect x="1548" y="0" width="52" height="275" fill="#4d2d1e"/><rect x="1580" y="0" width="10" height="276" fill="#a76a39"/>
+<path d="M0 25h120v18H0zM1480 25h120v18h-120z" fill="#54321f"/>
+<g transform="translate(115 67)"><rect x="-17" y="-42" width="34" height="10" rx="4" fill="#7a3f20"/><path d="M-13-30h26v66q-13 16-26 0z" fill="#f0bd61" stroke="#704224" stroke-width="4"/><path d="M-18 0h36" stroke="#9c5a2d" stroke-width="4"/><path d="M0 36v23" stroke="#9c5a2d" stroke-width="3"/></g>
+<g transform="translate(1483 68)"><rect x="-17" y="-42" width="34" height="10" rx="4" fill="#7a3f20"/><path d="M-13-30h26v66q-13 16-26 0z" fill="#f0bd61" stroke="#704224" stroke-width="4"/><path d="M-18 0h36" stroke="#9c5a2d" stroke-width="4"/><path d="M0 36v23" stroke="#9c5a2d" stroke-width="3"/></g>
+<!-- wooden pavilion rail -->
+<path d="M0 245 H1600 V290 H0Z" fill="#704226"/><path d="M0 245 H1600 V256 H0Z" fill="#d59852"/><path d="M0 258 H1600 V266 H0Z" fill="url(#gold)"/>
+<path d="M0 270 Q180 258 340 270 T680 270 T1020 270 T1360 270 T1600 270" fill="none" stroke="#f0cb87" stroke-width="3"/>
+<!-- table shadow -->
+<path d="M40 253 L1560 253 L1590 890 L10 890Z" fill="#00190f" opacity=".38" filter="url(#shadow)"/>
+<!-- table wooden frame and green top -->
+<path d="M160 255 L1440 255 L1576 864 L24 864Z" fill="url(#wood)" stroke="#5a321d" stroke-width="18"/>
+<path d="M177 272 L1423 272 L1544 828 L56 828Z" fill="none" stroke="url(#gold)" stroke-width="10"/>
+<path d="M195 285 L1405 285 L1520 812 L80 812Z" fill="url(#felt)" stroke="#53321e" stroke-width="12"/>
+<path d="M195 285 L1405 285 L1520 812 L80 812Z" fill="url(#grain)" opacity=".7"/>
+<path d="M210 300 L1390 300 L1494 797 L106 797Z" fill="none" stroke="#e0c58c" stroke-opacity=".42" stroke-width="2"/>
+<ellipse cx="800" cy="560" rx="160" ry="88" fill="none" stroke="#e6d29c" stroke-opacity=".12" stroke-width="4"/>
+<ellipse cx="800" cy="560" rx="142" ry="75" fill="none" stroke="#e6d29c" stroke-opacity=".08" stroke-width="2"/>
+<path d="M780 520q20-18 40 0q-20 30-40 0" fill="none" stroke="#e7d5a4" stroke-opacity=".12" stroke-width="3"/>
+<!-- carved front rail -->
+<path d="M25 850 Q800 837 1575 850 V900 H25Z" fill="#3e2518"/><path d="M25 850 Q800 837 1575 850 V865 Q800 852 25 865Z" fill="#d69a56"/>
+<path d="M70 877 Q260 865 430 878 T800 877 T1170 878 T1530 877" fill="none" stroke="#c28448" stroke-width="3" opacity=".7"/>
+<path d="M720 874l80-18 80 18-80 19z" fill="none" stroke="url(#gold)" stroke-width="5"/>
+<g fill="#e6bf7c"><rect x="22" y="846" width="24" height="43" rx="3"/><rect x="1554" y="846" width="24" height="43" rx="3"/></g>
+</svg>
