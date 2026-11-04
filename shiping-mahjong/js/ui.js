@@ -116,21 +116,24 @@ function processClaims(){
   if(!state||state.phase!=='reaction')return;
   let guard=0;
   while(state.phase==='reaction'&&guard++<8){
-    const c=state.pendingClaims[state.claimCursor];
-    if(!c){continueAfterDiscard();return}
-    if(c.seat===0){waiting=true;renderClaim(c);$('turn-label').textContent='你可以选择接牌或过';return}
-    const a=C.bestAiClaim(c);
-    if(!a){C.passClaim(state,c.seat);continue}
-    const tile=state.lastDiscard.tile;
+    const candidate=state.pendingClaims[state.claimCursor];
+    if(!candidate){continueAfterDiscard();return}
+    if(candidate.seat===0){waiting=true;renderClaim(candidate);$('turn-label').textContent='你可以选择接牌或过';return}
     try{
-      C.claimDiscard(state,c.seat,a.type,a.optionIndex||0);
-      addLog(NAMES[c.seat]+(a.type==='hu'?'胡牌':a.type==='gang'?'明杠'+C.tileLabel(tile):a.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),a.type==='hu'?'胡':a.type==='gang'?'杠':a.type==='peng'?'碰':'吃');
+      const action=C.bestAiClaim(candidate);
+      if(!action){C.passClaim(state,candidate.seat);continue}
+      const tile=state.lastDiscard.tile;
+      C.claimDiscard(state,candidate.seat,action.type,action.optionIndex||0);
+      addLog(NAMES[candidate.seat]+(action.type==='hu'?'胡牌':action.type==='gang'?'明杠'+C.tileLabel(tile):action.type==='peng'?'碰'+C.tileLabel(tile):'吃'+C.tileLabel(tile)),action.type==='hu'?'胡':action.type==='gang'?'杠':action.type==='peng'?'碰':'吃');
       render();if(state.phase==='over')return;
       if(state.current===0)renderSelfActions();else scheduleAi(450);
       return;
     }catch(error){
       console.error('AI 接牌处理失败，自动跳过该次接牌：',error);
-      C.passClaim(state,c.seat);
+      try{C.passClaim(state,candidate.seat)}catch(passError){
+        console.error('AI 过牌队列异常，强制推进接牌游标：',passError);
+        state.claimCursor++;
+      }
     }
   }
   if(state.phase==='reaction'&&guard>=8){console.error('接牌队列异常，自动恢复');continueAfterDiscard()}
