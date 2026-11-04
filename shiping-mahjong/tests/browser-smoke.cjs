@@ -5,21 +5,22 @@ async function waitForUserTurn(page,timeout=30000){
   const started=Date.now();
   while(Date.now()-started<timeout){
     if(await page.locator('#hand-tiles .tile-face.playable').count()>0)return;
-    const result=page.locator('#result-modal:not(.hidden)');
-    if(await result.count()){
+    if(await page.locator('#result-modal:not(.hidden)').count()){
       await page.locator('#result-new').click();
       await page.waitForTimeout(1300);
       continue;
     }
-    const pass=page.locator('#action-bar .action-pass');
-    if(await pass.count()){
-      await pass.click();
-      await page.waitForTimeout(60);
-      continue;
-    }
+    // Trigger pass synchronously so a just-rendered button cannot detach mid-click.
+    const passed=await page.evaluate(()=>{
+      const button=document.querySelector('#action-bar .action-pass');
+      if(!button)return false;
+      button.click();return true;
+    });
+    if(passed){await page.waitForTimeout(60);continue}
     await page.waitForTimeout(100);
   }
-  throw new Error('等待用户操作超时：没有进入出牌阶段，也没有可处理的过牌按钮');
+  const debug=await page.evaluate(()=>window.__shipingMahjongDebug?.()||null);
+  throw new Error('等待用户操作超时；游戏状态='+JSON.stringify(debug));
 }
 (async()=>{
   const browser=await chromium.launch({headless:true});
@@ -109,8 +110,12 @@ async function waitForUserTurn(page,timeout=30000){
       const playable=page.locator('#hand-tiles .tile-face.playable');
       const count=await playable.count();
       assert.ok(count>=13,'玩家回合必须有可操作手牌');
-      await playable.nth((turn*7+3)%count).click();
+      const before=await page.evaluate(()=>window.__shipingMahjongDebug?.());
+      console.log('STRESS TURN '+turn+' BEFORE '+JSON.stringify(before));
+      await playable.nth((turn*7+3)%count).click({timeout:5000});
       await waitForUserTurn(page,30000);
+      const after=await page.evaluate(()=>window.__shipingMahjongDebug?.());
+      console.log('STRESS TURN '+turn+' AFTER '+JSON.stringify(after));
     }
     const northCount=await page.locator('#discards-1 .tile-face').count();
     const westCount=await page.locator('#discards-2 .tile-face').count();
