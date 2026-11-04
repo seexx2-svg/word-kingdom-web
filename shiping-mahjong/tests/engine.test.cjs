@@ -168,6 +168,11 @@ test('杠、自摸、点炮计分均零和',()=>{
   assert.equal(p.result.winningHand.length,14);
   assert.ok(C.scoreIsZeroSum(p.scores));
 });
+test('AI 弃牌选择在异常手牌数据下有兜底，不会返回非法索引',()=>{
+  assert.equal(C.chooseAiDiscard([]),-1);
+  assert.equal(C.chooseAiDiscard([0,0,0,0,0]),4);
+  assert.equal(C.chooseAiDiscard([0,1,2,3,4,5,6,7,8,9,10,11,12,13]),14);
+});
 test('随机30,000手：胡牌算法与独立暴力分组器交叉验证',()=>{
   const r=seeded(20261031);
   for(let i=0;i<30000;i++){
