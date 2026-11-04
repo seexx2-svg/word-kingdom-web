@@ -2,7 +2,7 @@
 const C=window.ShipingMahjongCore,$=id=>document.getElementById(id);
 const NAMES=['你','老李','阿梅','小赵'],SEATS=['南家','北家','西家','东家'];
 const SETTINGS_KEY='shiping-mahjong-settings-v1',SOUND_KEY='shiping-mahjong-sound-v1',BANKROLL_KEY='shiping-mahjong-bankroll-v1';
-let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[];
+let state=null,settings=loadSettings(),waiting=false,timer=null,toastTimer=null,turnClock=null,turnSeconds=15,activity=[],aiWatchdog=null,aiToken=0;
 let diceTimer=null,diceInterval=null,settledState=null,balances=loadBankroll(),soundEnabled=loadSoundSetting(),audioReady=false,audioCtx=null;
 
 function loadSettings(){try{return Object.assign({chi:true,peng:true,gang:true,badHu:true},JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}'))}catch(_){return{chi:true,peng:true,gang:true,badHu:true}}}
@@ -26,7 +26,43 @@ function tileEl(id,cls=''){const e=document.createElement('div');e.className='ti
 function backEl(){const e=document.createElement('div');e.className='tile-back';return e}
 function addLog(txt,mark='•'){activity.unshift({text:txt,marker:mark,time:new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})});activity=activity.slice(0,16);renderLog();const last=$('last-action');if(last)last.textContent=txt;playSound(mark)}
 function renderLog(){const b=$('activity-list');if(!b)return;b.innerHTML='';if(!activity.length){b.innerHTML='<div class="activity-empty">牌局开始后，出牌和操作会显示在这里。</div>';return}activity.forEach(x=>{const row=document.createElement('div');row.className='activity-item';const m=document.createElement('div');m.className='activity-marker';m.textContent=x.marker;const body=document.createElement('div');body.textContent=x.text;const t=document.createElement('span');t.className='activity-time';t.textContent=x.time;body.appendChild(t);row.append(m,body);b.appendChild(row)})}
-function clearTimer(){if(timer)clearTimeout(timer);timer=null}
+function clearTimer(){if(timer)clearTimeout(timer);timer=null;if(aiWatchdog)clearTimeout(aiWatchdog);aiWatchdog=null;aiToken++}
+function watchdogAiProgress(token){
+  if(token!==aiToken)return;
+  aiWatchdog=null;
+  if(!state||state.phase==='over')return;
+  if(state.phase==='reaction'){
+    const pending=state.pendingClaims[state.claimCursor];
+    if(pending&&pending.seat!==0){
+      try{C.passClaim(state,pending.seat);processClaims()}catch(error){recoverAiTurn(error)}
+    }else if(!pending)continueAfterDiscard();
+    return;
+  }
+  if(state.phase!=='discard'||state.current===0)return;
+  const seat=state.current,hand=state.hands[seat];
+  if(!hand||!hand.length){
+    recoverAiTurn(new Error('AI 看门狗检测到空手牌'));
+    return;
+  }
+  let index=hand.length-1;
+  try{
+    const suggested=C.chooseAiDiscard(hand);
+    if(Number.isInteger(suggested)&&suggested>=0&&suggested<hand.length)index=suggested;
+  }catch(error){console.error('AI 选牌异常，使用最后一张牌兜底：',error)}
+  try{
+    const tile=hand[index];
+    C.discardTile(state,seat,index);
+    addLog(NAMES[seat]+'超时自动打出'+C.tileLabel(tile),'出');
+    render();processClaims();
+  }catch(error){recoverAiTurn(error)}
+}
+function scheduleAi(ms){
+  if(timer)clearTimeout(timer);
+  if(aiWatchdog)clearTimeout(aiWatchdog);
+  const token=++aiToken,delay=ms||400;
+  timer=setTimeout(()=>{if(token!==aiToken)return;timer=null;aiTurn(token)},delay);
+  aiWatchdog=setTimeout(()=>watchdogAiProgress(token),2200);
+}
 function clearTurnClock(){if(turnClock)clearInterval(turnClock);turnClock=null}
 function refreshTurnClock(){clearTurnClock();const e=$('turn-clock');if(!e)return;turnSeconds=15;e.textContent='15';if(!state||state.phase!=='discard'||state.current!==0)return;turnClock=setInterval(()=>{if(!state||state.phase!=='discard'||state.current!==0){clearTurnClock();return}turnSeconds=Math.max(0,turnSeconds-1);e.textContent=String(turnSeconds).padStart(2,'0');if(turnSeconds===0)clearTurnClock()},1000)}
 function setDiceFace(id,value){const el=$(id);if(!el)return;el.innerHTML='';const patterns={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};const selected=new Set(patterns[value]||patterns[1]);for(let i=0;i<9;i++){const dot=document.createElement('i');if(selected.has(i))dot.className='on';el.appendChild(dot)}}
@@ -135,8 +171,8 @@ function recoverAiTurn(error){
     render();
   }
 }
-function aiTurn(){
-  clearTimer();if(!state||state.phase!=='discard'||state.current===0)return;
+function aiTurn(token){
+  timer=null;if(!state||state.phase!=='discard'||state.current===0)return;
   try{
     const seat=state.current,hand=state.hands[seat],o=C.selfActions(state,seat);
     if(o.hu){C.winSelf(state,seat);addLog(NAMES[seat]+'自摸胡牌','胡');render();return}
@@ -195,7 +231,7 @@ window.__shipingMahjongDebug=()=>state?({
   discards:state.discards.map(p=>p.length),melds:state.melds.map(m=>m.length),
   pending:state.pendingClaims.map(c=>({seat:c.seat,preferred:c.preferred,actions:c.actions.map(a=>a.type)})),
   claimCursor:state.claimCursor,lastDiscard:state.lastDiscard,
-  waiting,aiTimerActive:!!timer,history:state.history.slice(-12)
+  waiting,aiTimerActive:!!timer,aiWatchdogActive:!!aiWatchdog,activeHand:state.hands[state.current].slice(),aiDiscardProbe:(()=>{try{return C.chooseAiDiscard(state.hands[state.current])}catch(e){return 'ERROR: '+e.message}})(),history:state.history.slice(-12)
 }):null;
 syncSoundButton();loadSeatBalances();newGame();
 })();
