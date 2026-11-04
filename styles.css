@@ -625,3 +625,46 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   z-index:12!important;
   pointer-events:auto!important;
 }
+
+/* Seat-side hand columns sit just inside the rails, clear of the portrait plaques. */
+.vertical-back{
+  top:60px!important;
+  height:340px!important;
+}
+.seat-west .vertical-back{left:155px!important;right:auto!important}
+.seat-east .vertical-back{right:138px!important;left:auto!important}
+.vertical-meld{
+  top:64px!important;
+}
+.seat-west .vertical-meld{left:205px!important;right:auto!important}
+.seat-east .vertical-meld{right:188px!important;left:auto!important}
+/* Pull east/west discards inward, leaving a dedicated lane for their hands. */
+.discard-west,.discard-east{
+  width:12%!important;
+  top:50%!important;
+  height:62%!important;
+}
+.discard-west{left:31%!important}
+.discard-east{right:31%!important}
+@media(max-width:900px){
+  .vertical-back{top:50px!important;height:310px!important}
+  .seat-west .vertical-back{left:128px!important}
+  .seat-east .vertical-back{right:112px!important}
+  .vertical-meld{top:54px!important}
+  .seat-west .vertical-meld{left:173px!important}
+  .seat-east .vertical-meld{right:158px!important}
+  .discard-west,.discard-east{width:12%!important}
+  .discard-west{left:29%!important}
+  .discard-east{right:29%!important}
+}
+@media(max-width:520px){
+  .vertical-back{top:42px!important;height:260px!important}
+  .seat-west .vertical-back{left:102px!important}
+  .seat-east .vertical-back{right:88px!important}
+  .vertical-meld{top:44px!important}
+  .seat-west .vertical-meld{left:138px!important}
+  .seat-east .vertical-meld{right:124px!important}
+  .discard-west,.discard-east{width:11%!important}
+  .discard-west{left:27%!important}
+  .discard-east{right:27%!important}
+}
