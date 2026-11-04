@@ -385,11 +385,12 @@ if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
 if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
   window.__shipingMahjongDebugForceAiStall=()=>{
     if(!state||state.phase==='over')return null;
-    const seat=state.current===0?C.nextSeat(0):state.current;
-    clearTimer();
-    if(state.hands[seat].length===13)C.drawTile(state,seat);
-    else{state.current=seat;state.phase='discard';state.lastDraw={seat,tile:state.hands[seat].at(-1)}}
-    render();return seat;
+    const seat=2,before=state.discards[seat].length;
+    clearTimer();waiting=false;
+    state.phase='discard';state.current=seat;state.lastDiscard=null;
+    state.pendingClaims=[];state.claimCursor=0;
+    state.lastDraw={seat,tile:state.hands[seat].at(-1)};
+    render();return{seat,before};
   };
   window.__shipingMahjongDebugForceAiChi=()=>{
     if(!state||state.phase==='over')return null;
@@ -407,7 +408,7 @@ if(location.hostname==='127.0.0.1'||location.hostname==='localhost'){
 window.__shipingMahjongDebug=()=>state?({
   phase:state.phase,current:state.current,dealer:state.dealer,
   wall:state.wall.length,hands:state.hands.map(h=>h.length),
-  discards:state.discards.map(p=>p.length),melds:state.melds.map(m=>m.length),
+  discards:state.discards.map(p=>p.length),melds:state.melds.map(m=>m.length),meldDetails:state.melds.map(ms=>ms.map(m=>({type:m.type,tiles:m.tiles.slice(),calledTile:m.calledTile,calledTileIndex:m.calledTileIndex,calledFrom:m.calledFrom}))),
   pending:state.pendingClaims.map(c=>({seat:c.seat,preferred:c.preferred,actions:c.actions.map(a=>a.type)})),
   claimCursor:state.claimCursor,lastDiscard:state.lastDiscard,
   waiting,claimProcessing,aiScheduledSeat,aiScheduledAge:aiScheduledAt?Date.now()-aiScheduledAt:null,aiTimerActive:!!timer,aiWatchdogActive:!!aiWatchdog,supervisorActive:!!supervisorTimer,activeHand:state.hands[state.current].slice(),aiDiscardProbe:(()=>{try{return C.chooseAiDiscard(state.hands[state.current])}catch(e){return 'ERROR: '+e.message}})(),history:state.history.slice(-12)
