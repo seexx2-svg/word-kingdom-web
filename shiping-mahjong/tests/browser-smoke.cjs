@@ -5,6 +5,12 @@ async function waitForUserTurn(page,timeout=30000){
   const started=Date.now();
   while(Date.now()-started<timeout){
     if(await page.locator('#hand-tiles .tile-face.playable').count()>0)return;
+    const result=page.locator('#result-modal:not(.hidden)');
+    if(await result.count()){
+      await page.locator('#result-new').click();
+      await page.waitForTimeout(1300);
+      continue;
+    }
     const pass=page.locator('#action-bar .action-pass');
     if(await pass.count()){
       await pass.click();
@@ -60,7 +66,15 @@ async function waitForUserTurn(page,timeout=30000){
     const faceImage=await page.locator('#hand-tiles .tile-face').first().evaluate(e=>getComputedStyle(e).backgroundImage);
     const backImage=await page.locator('.tile-back').first().evaluate(e=>getComputedStyle(e).backgroundImage);
     assert.ok(faceImage.includes('assets/mahjong/'),'牌面必须使用本地高质量矢量素材');
-    assert.ok(backImage.includes('assets/mahjong/Back.svg'),'牌背必须使用本地矢量素材');
+    const backStyle=await page.locator('.tile-back').first().evaluate(e=>({image:getComputedStyle(e).backgroundImage,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}));
+    assert.ok(backStyle.image.includes('linear-gradient'),'牌背应为绿色桌面风格，不再使用红色SVG牌背');
+    assert.ok(!backStyle.image.includes('Back.svg'),'不能再将红色牌背素材作为玩家暗牌背面');
+    const avatarSize=await page.locator('#seat-0 .avatar').evaluate(e=>e.getBoundingClientRect().width);
+    assert.ok(avatarSize>=50,'玩家头像应明显放大');
+    const hud=await page.locator('.center-hud').boundingBox();
+    const felt=await page.locator('.felt').boundingBox();
+    assert.ok(Math.abs((hud.x+hud.width/2)-(felt.x+felt.width/2))<12,'中央读秒必须水平居中');
+    assert.ok(Math.abs((hud.y+hud.height/2)-(felt.y+felt.height*.48))<55,'中央读秒必须位于牌桌中央附近');
 
     const sound=page.locator('#sound-toggle');
     assert.equal(await sound.getAttribute('aria-pressed'),'true','音效默认开启');
@@ -80,6 +94,23 @@ async function waitForUserTurn(page,timeout=30000){
     }
     assert.ok(await page.locator('#discards-1 .tile-face').count()>0,'北家必须按轮转规则实际打出弃牌');
 
+    // Stress several complete player/AI cycles. Human claim choices are passed automatically.
+    for(let turn=0;turn<20;turn++){
+      await waitForUserTurn(page,30000);
+      const playable=page.locator('#hand-tiles .tile-face.playable');
+      const count=await playable.count();
+      assert.ok(count>=13,'玩家回合必须有可操作手牌');
+      await playable.nth((turn*7+3)%count).click();
+      await waitForUserTurn(page,30000);
+    }
+    const northCount=await page.locator('#discards-1 .tile-face').count();
+    const westCount=await page.locator('#discards-2 .tile-face').count();
+    const eastCount=await page.locator('#discards-3 .tile-face').count();
+    assert.ok(northCount>0,'北家必须出牌');
+    assert.ok(westCount>0,'西家必须出牌');
+    assert.ok(eastCount>0,'东家必须出牌');
+    const sideTransform=await page.locator('#discards-2 .tile-face').first().evaluate(e=>getComputedStyle(e).transform);
+    assert.notEqual(sideTransform,'none','东/西家弃牌应旋转为朝向侧座位的方向');
     await page.locator('#new-game').click();
     await page.locator('#dice-overlay:not(.hidden)').waitFor({timeout:2000});
     await waitForUserTurn(page);
