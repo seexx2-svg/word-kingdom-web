@@ -424,3 +424,194 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   .dice-cube i{width:8px;height:8px}
   .result-winning-hand .tile-face{width:18px;height:26px}
 }
+
+/* ---- Table layout corrections: centred clock, upright side discards, player seating ---- */
+.center-table{
+  top:48%;
+  height:46%;
+}
+.center-hud{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  z-index:7;
+  padding:8px 13px;
+  border:1px solid #d5bd8266;
+  border-radius:18px;
+  background:radial-gradient(ellipse at center,#082f23e8,#08291cbf 74%,#08291c00);
+  box-shadow:0 8px 22px #00190f38;
+}
+.hud-clock{width:66px;height:66px}
+.hud-wind{width:120px}
+.hud-caption{font-size:9px;padding:4px 10px}
+
+/* The red horizontal/vertical bars were red tile backs, not extra tiles.
+   Replace them with a jade-green back pattern. */
+.tile-back{
+  position:relative;
+  background:
+    linear-gradient(145deg,#b4e58a 0%,#65b45a 18%,#237b46 55%,#0c4b32 100%)!important;
+  border:1px solid #d0e4ab!important;
+  box-shadow:inset 0 1px 3px #f4ffd5bb,0 2px 2px #00150cbb,0 4px 0 #125b39!important;
+}
+.tile-back:before{
+  content:"";position:absolute;inset:3px;border-radius:3px;
+  border:1px solid #d2edaa;box-shadow:inset 0 0 0 1px #0a5736;
+  background:
+    repeating-linear-gradient(45deg,transparent 0 5px,#d8f2ad2a 6px 7px),
+    repeating-linear-gradient(-45deg,transparent 0 5px,#032f2220 6px 7px);
+}
+.tile-back:after{
+  content:"";position:absolute;inset:8px;border:1px solid #d8eeb3a8;border-radius:3px;
+  background:radial-gradient(ellipse at center,#d4f0a533,transparent 70%);
+}
+
+/* Side players' concealed hands: same tile size, rotated to face the player,
+   evenly overlapped so all thirteen backs remain visible. */
+.vertical-back{
+  top:-112px!important;
+  height:340px!important;
+  width:48px!important;
+  overflow:visible!important;
+  justify-content:flex-start!important;
+  padding:0!important;
+}
+.seat-west .vertical-back{left:58px!important;right:auto!important}
+.seat-east .vertical-back{right:58px!important;left:auto!important}
+.vertical-back .tile-back{
+  width:44px!important;height:32px!important;flex:0 0 32px!important;
+  margin:0!important;margin-top:-10px!important;
+  transform:rotate(90deg);
+}
+.vertical-back .tile-back:first-child{margin-top:0!important}
+.vertical-meld{
+  top:-105px!important;
+  gap:8px!important;
+}
+.seat-west .vertical-meld{left:108px!important;right:auto!important}
+.seat-east .vertical-meld{right:108px!important;left:auto!important}
+.vertical-meld .meld-group{
+  display:flex;flex-direction:column;gap:8px;
+}
+.vertical-meld .tile-face{
+  width:35px!important;height:25px!important;
+  margin:0!important;transform:rotate(90deg);
+}
+
+/* Discards from east/west are rotated toward their respective seats.
+   Grid slots avoid the previous wrapping/overlap. */
+.discard-west,.discard-east{
+  display:grid!important;
+  grid-auto-flow:column;
+  grid-template-rows:repeat(6,37px);
+  grid-auto-columns:27px;
+  align-content:center;
+  justify-content:center;
+  align-items:center;
+  justify-items:center;
+  gap:2px 3px;
+  width:19%!important;height:62%!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+  overflow:visible!important;
+}
+.discard-west{left:12%!important;right:auto!important}
+.discard-east{right:12%!important;left:auto!important}
+.discard-west .tile-face,.discard-east .tile-face{
+  width:35px!important;height:25px!important;
+  transform:rotate(90deg);
+  border-radius:3px;
+}
+.discard-north,.discard-south{
+  display:flex!important;
+  flex-direction:row!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  gap:3px!important;
+}
+.discard-north{top:13%!important;height:21%!important}
+.discard-south{bottom:12%!important;height:21%!important}
+
+/* Larger portrait markers and subtle shoulders make the players read as seated. */
+.seat-top{
+  position:relative;
+  min-height:60px;
+  padding:4px 13px 4px 5px;
+  gap:9px;
+  background:linear-gradient(100deg,#06271deF,#0b3828e8 72%,#06271ddf);
+  border:1px solid #f2d38b88;
+  box-shadow:0 6px 13px #00150eaa,inset 0 1px 0 #ffffff18;
+}
+.avatar{
+  position:relative;
+  flex:0 0 54px;
+  width:54px;height:54px;
+  font-size:16px;
+  border-width:3px;
+  box-shadow:0 2px 7px #0009,0 0 0 3px #f2d69b20,inset 0 2px 4px #fff9;
+  background:radial-gradient(circle at 35% 25%,#f7e8c9 0%,#d1a46d 48%,#87572e 100%);
+}
+.avatar:after{
+  content:"";position:absolute;left:12%;bottom:-12px;width:76%;height:19px;
+  border-radius:55% 55% 20% 20%;
+  background:linear-gradient(180deg,#d6b88b,#77502e);
+  border:1px solid #e5ca9b99;
+  box-shadow:0 3px 5px #00150c77;
+  z-index:-1;
+}
+.avatar-west{background:radial-gradient(circle at 35% 25%,#f0ebd2 0%,#b5b99a 48%,#617458 100%)}
+.avatar-east{background:radial-gradient(circle at 35% 25%,#f6ddce 0%,#c28b70 48%,#754631 100%)}
+.avatar-you{background:radial-gradient(circle at 35% 25%,#fff0cf 0%,#d9ae71 48%,#85552a 100%)}
+.seat-meta b{font-size:13px}
+.seat-score{font-size:11px}
+.seat-south .seat-top{min-height:72px;padding:4px 16px 4px 5px}
+.seat-south .avatar{flex-basis:64px;width:64px;height:64px;font-size:17px}
+.seat-south .seat-meta b{font-size:15px}
+.seat-north .seat-top{min-height:63px}
+.seat-west .seat-top,.seat-east .seat-top{min-height:66px}
+.seat-north{top:1.6%!important}
+.seat-west{left:1.2%!important}
+.seat-east{right:1.2%!important}
+.seat-south{left:18px!important;bottom:13.5%!important}
+
+/* Properly space the thirteen side-hand backs after their rotation. */
+@media(max-width:900px){
+  .center-hud{top:51%}
+  .vertical-back{top:-105px!important;height:310px!important}
+  .vertical-back .tile-back{width:40px!important;height:29px!important;flex-basis:29px!important;margin-top:-9px!important}
+  .seat-west .vertical-back{left:48px!important}
+  .seat-east .vertical-back{right:48px!important}
+  .vertical-meld{top:-98px!important}
+  .seat-west .vertical-meld{left:95px!important}
+  .seat-east .vertical-meld{right:95px!important}
+  .discard-west,.discard-east{grid-template-rows:repeat(6,32px);grid-auto-columns:24px;width:17%!important}
+  .discard-west{left:10%!important}
+  .discard-east{right:10%!important}
+  .discard-west .tile-face,.discard-east .tile-face{width:30px!important;height:22px!important}
+  .seat-top{min-height:55px}
+  .avatar{flex-basis:48px;width:48px;height:48px}
+  .seat-south .avatar{flex-basis:58px;width:58px;height:58px}
+}
+@media(max-width:520px){
+  .center-hud{padding:5px 8px}
+  .hud-clock{width:56px;height:56px}
+  .hud-clock b{font-size:25px}
+  .hud-caption{font-size:8px;max-width:175px;white-space:normal;text-align:center}
+  .vertical-back{top:-90px!important;height:260px!important}
+  .vertical-back .tile-back{width:34px!important;height:25px!important;flex-basis:25px!important;margin-top:-8px!important}
+  .seat-west .vertical-back{left:37px!important}
+  .seat-east .vertical-back{right:37px!important}
+  .vertical-meld{top:-82px!important}
+  .seat-west .vertical-meld{left:76px!important}
+  .seat-east .vertical-meld{right:76px!important}
+  .discard-west,.discard-east{grid-template-rows:repeat(6,27px);grid-auto-columns:21px;width:16%!important}
+  .discard-west{left:8%!important}
+  .discard-east{right:8%!important}
+  .discard-west .tile-face,.discard-east .tile-face{width:25px!important;height:19px!important}
+  .seat-meta b{font-size:10px}
+  .seat-score{font-size:9px}
+  .seat-top{gap:5px;padding-right:7px;min-height:50px}
+  .avatar{flex-basis:42px;width:42px;height:42px;font-size:13px}
+  .seat-south .avatar{flex-basis:50px;width:50px;height:50px}
+}
