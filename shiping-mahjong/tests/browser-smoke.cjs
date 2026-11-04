@@ -96,6 +96,12 @@ async function waitForUserTurn(page,timeout=30000){
     await page.locator('#hand-tiles .tile-face.playable').first().click();
     await page.waitForFunction(()=>document.querySelectorAll('#hand-tiles .tile-face').length===13,{timeout:5000});
     assert.equal(await page.locator('#hand-tiles .tile-face').count(),13,'出牌后手牌应减少到13张');
+    await page.waitForFunction(()=>window.__shipingMahjongLastDiscardFlight?.seat===0);
+    const discardCallout=await page.locator('#discard-callout').textContent();
+    assert.match(discardCallout,/南家.*打出/,'打牌提示必须说清楚是哪家打出的');
+    const flight=await page.evaluate(()=>window.__shipingMahjongLastDiscardFlight);
+    assert.equal(flight.seat,0,'玩家弃牌动画应从南家位置出发');
+    assert.ok(Math.abs(flight.from.x-flight.to.x)>10||Math.abs(flight.from.y-flight.to.y)>10,'弃牌必须有从手牌到弃牌区的移动路径');
     for(let attempt=0;attempt<120;attempt++){
       if(await page.locator('#discards-1 .tile-face').count()>0)break;
       const pass=page.locator('#action-bar .action-pass');
@@ -124,16 +130,60 @@ async function waitForUserTurn(page,timeout=30000){
     assert.ok(seenDiscardSeats.has(1),'北家必须在压力测试期间出牌');
     assert.ok(seenDiscardSeats.has(2),'西家必须在压力测试期间出牌');
     assert.ok(seenDiscardSeats.has(3),'东家必须在压力测试期间出牌');
-    const sideTransform=await page.evaluate(()=>{
-      const host=document.querySelector('#discards-2'),tile=document.createElement('div');
-      tile.className='tile-face';host.appendChild(tile);
-      const value=getComputedStyle(tile).transform;tile.remove();return value;
+    const sideOrientation=await page.evaluate(()=>{
+      const checks=['#discards-2','#discards-3'].map(selector=>{
+        const host=document.querySelector(selector),tile=document.createElement('div');
+        tile.className='tile-face';host.appendChild(tile);
+        const style=getComputedStyle(tile),value={transform:style.transform,width:parseFloat(style.width),height:parseFloat(style.height)};
+        tile.remove();return value;
+      });
+      return checks;
     });
-    assert.notEqual(sideTransform,'none','东/西家弃牌应旋转为朝向侧座位的方向');
-    await page.locator('#new-game').click();
-    await page.locator('#dice-overlay:not(.hidden)').waitFor({timeout:2000});
+    for(const side of sideOrientation){
+      assert.equal(side.transform,'none','东、西家弃牌必须正向摆放，不能横转');
+      assert.ok(side.height>side.width,'东、西家弃牌必须保持竖直牌面比例');
+    }
+
+    // The win presentation must be inside the felt and show melds plus all winning tiles.
+    await page.evaluate(()=>window.__shipingMahjongDebugForceWin?.());
+    await page.locator('#result-modal:not(.hidden)').waitFor();
+    const winLayout=await page.evaluate(()=>{
+      const layer=document.querySelector('#result-modal'),felt=document.querySelector('.felt'),card=layer.querySelector('.result-card');
+      const a=layer.getBoundingClientRect(),b=felt.getBoundingClientRect(),bg=getComputedStyle(layer).backgroundColor;
+      return{
+        parentIsFelt:layer.parentElement===felt,
+        centeredX:Math.abs((a.left+a.width/2)-(b.left+b.width/2)),
+        centeredY:Math.abs((a.top+a.height/2)-(b.top+b.height/2)),
+        layerWidth:a.width,viewportWidth:innerWidth,background:bg,
+        pointerEvents:getComputedStyle(layer).pointerEvents,
+        cardPointerEvents:getComputedStyle(card).pointerEvents,
+        hiddenHand:layer.querySelectorAll('.result-winning-hand .tile-face').length,
+        exposedMeld:layer.querySelectorAll('.result-meld-group .tile-face').length
+      };
+    });
+    assert.equal(winLayout.parentIsFelt,true,'胡牌结果必须放在牌桌内部');
+    assert.ok(winLayout.centeredX<12&&winLayout.centeredY<18,'胡牌展示必须居中于牌桌');
+    assert.ok(winLayout.layerWidth<winLayout.viewportWidth,'胡牌展示不能铺满整个屏幕');
+    assert.match(winLayout.background,/0\.2[0-9]+\)/,'牌桌遮罩应保持半透明');
+    assert.equal(winLayout.pointerEvents,'none','结果遮罩本身不能挡住牌桌点击');
+    assert.equal(winLayout.cardPointerEvents,'auto','结果卡片按钮仍可点击');
+    assert.equal(winLayout.hiddenHand,14,'必须展示完整14张胡牌手牌');
+    assert.equal(winLayout.exposedMeld,3,'必须展示已亮副露的全部牌');
+
+    await page.locator('#result-new').click();
+    await page.locator('#dice-overlay:not(.hidden)').waitFor();
+    const diceLayout=await page.evaluate(()=>{
+      const dice=document.querySelector('#dice-overlay'),felt=document.querySelector('.felt'),card=document.querySelector('.dice-card');
+      const a=dice.getBoundingClientRect(),b=felt.getBoundingClientRect(),c=card.getBoundingClientRect();
+      return{parentIsFelt:dice.parentElement===felt,centerX:Math.abs((a.left+a.width/2)-(b.left+b.width/2)),centerY:Math.abs((a.top+a.height/2)-(b.top+b.height/2)),cardWidth:c.width,hasRollingDice:!!dice.querySelector('.dice-cube.rolling')};
+    });
+    assert.equal(diceLayout.parentIsFelt,true,'骰子动画必须属于牌桌，不是页面独立弹窗');
+    assert.ok(diceLayout.centerX<12&&diceLayout.centerY<18,'骰子必须在牌桌正中央');
+    assert.ok(diceLayout.cardWidth>100,'中央骰子必须实际显示');
+    assert.equal(diceLayout.hasRollingDice,true,'两颗骰子开局应有滚动动画');
     await waitForUserTurn(page);
     await page.waitForFunction(()=>document.querySelector('#dice-overlay').classList.contains('hidden'));
+
     assert.deepEqual(pageErrors,[],'页面执行期间不应出现未捕获的JavaScript异常');
     assert.deepEqual(failedRequests,[],'页面资源不应加载失败');
     assert.deepEqual(consoleErrors,[],'浏览器控制台不应出现资源或脚本错误');
