@@ -56,6 +56,30 @@ async function waitForUserTurn(page,timeout=30000){
     assert.equal(diagnostic.wallCutCount,1,'骰子必须标出唯一的开牌墙');
     assert.equal(diagnostic.dealerCount,1,'一局必须且只能有一个庄家');
     assert.match(diagnostic.bankroll,/100/,'每家开局带入100积分');
+    const dieDiagnostics=await page.locator('.dice-cube').evaluateAll(cubes=>cubes.map(c=>({
+      faceCount:c.querySelectorAll('.die-face').length,
+      values:Array.from(c.querySelectorAll('.die-face')).map(f=>Number(f.dataset.value)),
+      pips:Array.from(c.querySelectorAll('.die-face')).map(f=>f.querySelectorAll('i.on').length),
+      settledTransform:c.querySelector('.die-cube3d')?.style.transform
+    })));
+    for(const die of dieDiagnostics){
+      assert.equal(die.faceCount,6,'骰子必须有真实六面立方体，而不只是平面圆点');
+      assert.deepEqual(die.values,[1,6,3,4,2,5],'骰子六个面必须各自有正确点数');
+      assert.deepEqual(die.pips,[1,6,3,4,2,5],'骰面点数图案必须正确');
+      assert.ok(die.settledTransform.includes('rotate'),'骰子落桌后应停在最终朝向');
+    }
+
+    // Check the real 3D tumble while the dice are moving on the felt.
+    await page.locator('#new-game').click();
+    await page.locator('#dice-overlay:not(.hidden)').waitFor();
+    const rollingState=await page.locator('.dice-cube').evaluateAll(cubes=>cubes.map(c=>({
+      rolling:c.classList.contains('rolling'),
+      animation:getComputedStyle(c.querySelector('.die-cube3d')).animationName,
+      perspective:getComputedStyle(c).perspective
+    })));
+    assert.ok(rollingState.every(d=>d.rolling&&d.animation==='die-tumble'&&d.perspective!=='none'),'两颗骰子必须在牌桌上以真实3D立方体滚动');
+    await waitForUserTurn(page);
+    await page.waitForFunction(()=>document.querySelector('#dice-overlay').classList.contains('hidden'));
 
     const windOrder=await page.locator('.hud-wind span').allTextContents();
     assert.deepEqual(windOrder,['东','南','西','北'],'中央方位必须从左到右为东南西北');
@@ -109,6 +133,33 @@ async function waitForUserTurn(page,timeout=30000){
       else await page.waitForTimeout(100);
     }
     assert.ok(await page.locator('#discards-1 .tile-face').count()>0,'北家必须按轮转规则实际打出弃牌');
+
+    // Force a deterministic AI chi. The meld must identify the eaten tile and then the AI must discard.
+    const forcedChi=await page.evaluate(()=>window.__shipingMahjongDebugForceAiChi?.());
+    assert.ok(forcedChi&&forcedChi.seat===2,'必须构造出下家吃牌场景');
+    await page.waitForFunction(seat=>{
+      const d=window.__shipingMahjongDebug?.();
+      return d&&d.meldDetails[seat].some(m=>m.type==='chi'&&m.calledTile===2&&m.calledTileIndex===2);
+    },forcedChi.seat,{timeout:5000});
+    const chiLabel=page.locator('#meld-2 .meld-chi .meld-label');
+    await chiLabel.waitFor({timeout:3000});
+    assert.equal((await chiLabel.textContent()).trim(),'吃 3万','吃牌副露必须明确标出吃进来的3万');
+    const calledTileOutline=await page.locator('#meld-2 .meld-chi .meld-called-tile').first().evaluate(e=>getComputedStyle(e).outlineStyle);
+    assert.equal(calledTileOutline,'solid','吃进来的那张牌必须高亮');
+    await page.waitForFunction(seat=>{
+      const h=window.__shipingMahjongDebug()?.history||[];
+      return h.some((x,i)=>x.type==='chi'&&x.seat===seat&&h[i+1]?.type==='discard'&&h[i+1]?.seat===seat);
+    },forcedChi.seat,{timeout:6000});
+
+    // Remove an AI timer on purpose. The persistent supervisor must restore the turn.
+    const stall=await page.evaluate(()=>window.__shipingMahjongDebugForceAiStall?.());
+    assert.ok(stall&&Number.isInteger(stall.seat),'必须能构造一个没有AI任务的电脑回合');
+    await page.waitForFunction(({seat,before})=>{
+      const d=window.__shipingMahjongDebug?.();
+      return d&&d.discards[seat]>before;
+    },stall,{timeout:6000});
+    await page.locator('#new-game').click();
+    await waitForUserTurn(page);
 
     // Stress twenty complete user turns; a round may end and auto-restart during the stress run.
     const seenDiscardSeats=new Set();
