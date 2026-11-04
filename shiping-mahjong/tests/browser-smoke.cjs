@@ -104,26 +104,31 @@ async function waitForUserTurn(page,timeout=30000){
     }
     assert.ok(await page.locator('#discards-1 .tile-face').count()>0,'北家必须按轮转规则实际打出弃牌');
 
-    // Stress several complete player/AI cycles. Human claim choices are passed automatically.
+    // Stress twenty complete user turns; a round may end and auto-restart during the stress run.
+    const seenDiscardSeats=new Set();
+    const recordDiscardSeats=debug=>{if(debug&&Array.isArray(debug.discards))debug.discards.forEach((count,seat)=>{if(count>0)seenDiscardSeats.add(seat)})};
     for(let turn=0;turn<20;turn++){
       await waitForUserTurn(page,30000);
       const playable=page.locator('#hand-tiles .tile-face.playable');
       const count=await playable.count();
       assert.ok(count>=13,'玩家回合必须有可操作手牌');
       const before=await page.evaluate(()=>window.__shipingMahjongDebug?.());
+      recordDiscardSeats(before);
       console.log('STRESS TURN '+turn+' BEFORE '+JSON.stringify(before));
       await playable.nth((turn*7+3)%count).click({timeout:5000});
       await waitForUserTurn(page,30000);
       const after=await page.evaluate(()=>window.__shipingMahjongDebug?.());
+      recordDiscardSeats(after);
       console.log('STRESS TURN '+turn+' AFTER '+JSON.stringify(after));
     }
-    const northCount=await page.locator('#discards-1 .tile-face').count();
-    const westCount=await page.locator('#discards-2 .tile-face').count();
-    const eastCount=await page.locator('#discards-3 .tile-face').count();
-    assert.ok(northCount>0,'北家必须出牌');
-    assert.ok(westCount>0,'西家必须出牌');
-    assert.ok(eastCount>0,'东家必须出牌');
-    const sideTransform=await page.locator('#discards-2 .tile-face').first().evaluate(e=>getComputedStyle(e).transform);
+    assert.ok(seenDiscardSeats.has(1),'北家必须在压力测试期间出牌');
+    assert.ok(seenDiscardSeats.has(2),'西家必须在压力测试期间出牌');
+    assert.ok(seenDiscardSeats.has(3),'东家必须在压力测试期间出牌');
+    const sideTransform=await page.evaluate(()=>{
+      const host=document.querySelector('#discards-2'),tile=document.createElement('div');
+      tile.className='tile-face';host.appendChild(tile);
+      const value=getComputedStyle(tile).transform;tile.remove();return value;
+    });
     assert.notEqual(sideTransform,'none','东/西家弃牌应旋转为朝向侧座位的方向');
     await page.locator('#new-game').click();
     await page.locator('#dice-overlay:not(.hidden)').waitFor({timeout:2000});
