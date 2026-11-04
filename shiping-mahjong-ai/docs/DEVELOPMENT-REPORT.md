@@ -143,7 +143,11 @@
 
 2. **直接开文件**：双击 `index.html` 也能玩，只是调试接口在 `file://` 下不启用。
 
-3. 线上正式地址（`gh-pages`）**没有**被本次改动影响，仍然是原版本。
+3. **独立在线预览（本次新部署，与 gh-pages 无关）**：
+   <https://shiping-mahjong-ai.app.workbuddy.host/?sharecode=2MS3R37OYC>
+   该地址由本次项目目录单独发布，原线上 `gh-pages`（`https://seexx2-svg.github.io/word-kingdom-web/`）**没有**被改动。
+
+4. 源码地址：<https://github.com/seexx2-svg/word-kingdom-web/tree/ai-mahjong-next/shiping-mahjong-ai>
 
 ## 七、调试接口（仅 localhost / ?debug=1 暴露）
 

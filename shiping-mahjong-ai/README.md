@@ -17,6 +17,8 @@ python3 -m http.server 8080     # 或 npm run serve
 # 打开 http://127.0.0.1:8080/
 ```
 
+**在线试玩（本次独立部署，不影响 gh-pages）**：<https://shiping-mahjong-ai.app.workbuddy.host/?sharecode=2MS3R37OYC>
+
 ## 测试
 
 ```bash
