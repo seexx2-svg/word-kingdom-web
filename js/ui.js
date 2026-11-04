@@ -122,7 +122,37 @@ function superviseGame(){
 }
 function clearTurnClock(){if(turnClock)clearInterval(turnClock);turnClock=null}
 function refreshTurnClock(){clearTurnClock();const e=$('turn-clock');if(!e)return;turnSeconds=15;e.textContent='15';if(!state||state.phase!=='discard'||state.current!==0)return;turnClock=setInterval(()=>{if(!state||state.phase!=='discard'||state.current!==0){clearTurnClock();return}turnSeconds=Math.max(0,turnSeconds-1);e.textContent=String(turnSeconds).padStart(2,'0');if(turnSeconds===0)clearTurnClock()},1000)}
-function setDiceFace(id,value){const el=$(id);if(!el)return;el.innerHTML='';const patterns={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};const selected=new Set(patterns[value]||patterns[1]);for(let i=0;i<9;i++){const dot=document.createElement('i');if(selected.has(i))dot.className='on';el.appendChild(dot)}}
+function setDiceFace(id,value){
+  const el=$(id);if(!el)return;
+  let cube=el.querySelector('.die-cube3d');
+  if(!cube){
+    cube=document.createElement('div');cube.className='die-cube3d';
+    const faces=[
+      {name:'front',value:1,transform:'translateZ(33px)'},
+      {name:'back',value:6,transform:'rotateY(180deg) translateZ(33px)'},
+      {name:'right',value:3,transform:'rotateY(90deg) translateZ(33px)'},
+      {name:'left',value:4,transform:'rotateY(-90deg) translateZ(33px)'},
+      {name:'top',value:2,transform:'rotateX(90deg) translateZ(33px)'},
+      {name:'bottom',value:5,transform:'rotateX(-90deg) translateZ(33px)'}
+    ];
+    const patterns={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+    faces.forEach(face=>{
+      const panel=document.createElement('div');panel.className='die-face die-'+face.name;
+      panel.dataset.value=String(face.value);panel.style.transform=face.transform;
+      for(let i=0;i<9;i++){
+        const dot=document.createElement('i');
+        if(patterns[face.value].includes(i))dot.className='on';
+        panel.appendChild(dot);
+      }
+      cube.appendChild(panel);
+    });
+    el.appendChild(cube);
+  }
+  el.dataset.value=String(value);
+  const settled={1:'rotateX(0deg) rotateY(0deg)',2:'rotateX(-90deg) rotateY(0deg)',3:'rotateX(0deg) rotateY(-90deg)',4:'rotateX(0deg) rotateY(90deg)',5:'rotateX(90deg) rotateY(0deg)',6:'rotateX(0deg) rotateY(180deg)'};
+  if(!el.classList.contains('rolling'))cube.style.transform=settled[value]||settled[1];
+}
+
 function markWallBreak(side){document.querySelectorAll('.wall-strip').forEach(x=>x.classList.remove('cut-wall'));const map={'南':'.wall-south','北':'.wall-north','西':'.wall-east','东':'.wall-west'};const e=document.querySelector(map[side]||'.wall-south');if(e)e.classList.add('cut-wall')}
 function markDealer(dealer){for(let i=0;i<4;i++){const seat=$('seat-'+i);if(!seat)continue;seat.classList.toggle('dealer-seat',i===dealer);const top=seat.querySelector('.seat-top');let mark=top.querySelector('.dealer-mark');if(i===dealer&&!mark){mark=document.createElement('span');mark.className='dealer-mark';mark.textContent='庄';top.appendChild(mark)}else if(i!==dealer&&mark)mark.remove()}}
 function newGame(){
@@ -133,7 +163,7 @@ function newGame(){
   setDiceFace('dice-one',1);setDiceFace('dice-two',1);$('dice-one').classList.add('rolling');$('dice-two').classList.add('rolling');
   diceInterval=setInterval(()=>{setDiceFace('dice-one',1+Math.floor(Math.random()*6));setDiceFace('dice-two',1+Math.floor(Math.random()*6))},85);
   diceTimer=setTimeout(()=>{
-    clearInterval(diceInterval);diceInterval=null;setDiceFace('dice-one',dice[0]);setDiceFace('dice-two',dice[1]);$('dice-one').classList.remove('rolling');$('dice-two').classList.remove('rolling');
+    clearInterval(diceInterval);diceInterval=null;$('dice-one').classList.remove('rolling');$('dice-two').classList.remove('rolling');setDiceFace('dice-one',dice[0]);setDiceFace('dice-two',dice[1]);
     $('dice-outcome').textContent='点数 '+dice[0]+' + '+dice[1]+' = '+setup.sum+' · '+NAMES[setup.dealer]+' 坐庄';
     $('dice-subtitle').textContent='从'+setup.wallSide+'墙第 '+setup.wallStack+' 墩开牌';
     playSound('庄');
@@ -308,8 +338,8 @@ function showResult(){
     const meldList=document.createElement('div');meldList.className='result-meld-list';
     (state.melds[result.seat]||[]).forEach(meld=>{
       const group=document.createElement('div');group.className='result-meld-group';
-      const kind=document.createElement('span');kind.className='result-meld-kind';kind.textContent=meld.type==='gang'?'杠':meld.type==='peng'?'碰':'吃';group.appendChild(kind);
-      meld.tiles.forEach(tile=>group.appendChild(tileEl(tile)));
+      const kind=document.createElement('span');kind.className='result-meld-kind';kind.textContent=(meld.type==='gang'?'杠':meld.type==='peng'?'碰':'吃')+' '+C.tileLabel(meld.calledTile===undefined?meld.tiles[0]:meld.calledTile);group.appendChild(kind);
+      meld.tiles.forEach((tile,index)=>group.appendChild(tileEl(tile,index===(Number.isInteger(meld.calledTileIndex)?meld.calledTileIndex:-1)?'meld-called-tile':'')));
       meldList.appendChild(group);
     });
     if((state.melds[result.seat]||[]).length)meldBlock.append(meldLabel,meldList);
