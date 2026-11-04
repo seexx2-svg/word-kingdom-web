@@ -142,7 +142,7 @@ function renderClaim(c){const b=$('action-bar');b.innerHTML='';const acts=c.acti
 function doClaim(type,i){if(!waiting)return;const t=state.lastDiscard.tile;try{C.claimDiscard(state,0,type,i||0);waiting=false;addLog('你'+(type==='hu'?'胡牌':type==='gang'?'明杠'+C.tileLabel(t):type==='peng'?'碰'+C.tileLabel(t):'吃'+C.tileLabel(t)),type==='hu'?'胡':type==='gang'?'杠':type==='peng'?'碰':'吃');render();if(state.phase!=='over'&&state.current===0)renderSelfActions();else if(state.phase!=='over')scheduleAi(450)}catch(e){toast(e.message)}}
 function passHuman(){if(!waiting)return;waiting=false;C.passClaim(state,0);processClaims()}
 function continueAfterDiscard(){if(state.phase==='over')return;const from=state.lastDiscard?state.lastDiscard.from:state.current,next=C.nextSeat(from);if(!C.drawTile(state,next)){render();return}addLog(NAMES[next]+'摸牌','摸');render();if(next===0)renderSelfActions();else scheduleAi(420)}
-function scheduleAi(ms){clearTimer();timer=setTimeout(aiTurn,ms||400)}
+
 function recoverAiTurn(error){
   console.error('AI 回合发生异常，启动自动恢复：',error);
   try{
