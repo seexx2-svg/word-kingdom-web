@@ -80,12 +80,78 @@
   function saveRoundNo() { try { localStorage.setItem(KEY_ROUND, String(roundNo)); } catch (_) { /* ignore */ } }
 
   /* ---------------- 账号 / 场次 / 界面切换 ----------------
-   * 账号、赛季与银币规则都在 js/account.js；这里只负责把结果画到界面上。
-   * 接真实服务端时，把 A.currentAccount / A.login 换成请求即可，界面不用改。
+   * 账号、赛季与银币规则在 js/account.js；云端读写与字段映射在 js/cloud.js。
+   * 这里只负责：拿当前账号 → 把改动写回它该去的地方 → 画到界面上。
+   * 云端账号的进度绝不落 localStorage，游客账号也绝不冒充云端数据。
    */
-  function store() { return A.makeStore(); }
-  function loadAccount() { account = A.currentAccount(store()); return account; }
-  function refreshAccount() { account = A.currentAccount(store()); return account; }
+  const Cloud = window.HongheCloud || null;
+  /** 云端账号不能写本机：否则会污染游客存档，也会让人误以为云端没生效 */
+  const INERT_STORE = {
+    getItem: () => null, setItem: () => {}, removeItem: () => {},
+    key: () => null, length: 0
+  };
+  function store() { return (account && account.source === 'cloud') ? INERT_STORE : A.makeStore(); }
+  /** 账号对象就是唯一真相，重画时不需要再回去读存储 */
+  function refreshAccount() { return account; }
+
+  let syncState = 'idle';       // idle | ok | error | guest
+  let syncAt = 0;
+  let savePending = false;
+  let saveRetry = 0;
+  let retryTimer = null;
+
+  /** 把当前账号写回它该去的地方：游客写本机，云端写数据库 */
+  async function persist(opts) {
+    const o = opts || {};
+    if (!account) return { ok: true };
+    if (account.source !== 'cloud' || !Cloud) {
+      account = A.update(A.makeStore(), account);
+      syncState = 'guest';
+      paintSync();
+      return { ok: true };
+    }
+    const res = await Cloud.saveProfile(account);
+    if (res.ok) {
+      syncState = 'ok';
+      syncAt = Date.now();
+      savePending = false;
+      saveRetry = 0;
+      paintSync();
+      return res;
+    }
+    syncState = 'error';
+    savePending = true;
+    paintSync();
+    if (!o.silent) toast('云端保存失败：' + res.error + '，会自动重试');
+    scheduleRetry();
+    return res;
+  }
+  function scheduleRetry() {
+    if (retryTimer || !savePending) return;
+    if (saveRetry >= 10) { savePending = false; return; }
+    saveRetry += 1;
+    const wait = Math.min(30000, 4000 * saveRetry);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (savePending) persist({ silent: true });
+    }, wait);
+  }
+  function paintSync() {
+    const el = $('am-cloud');
+    if (!el) return;
+    if (!account) { el.textContent = ''; el.className = 'am-cloud'; return; }
+    if (account.source !== 'cloud') {
+      el.className = 'am-cloud guest';
+      el.textContent = '游客模式 · 进度只存本机';
+      return;
+    }
+    if (syncState === 'error') { el.className = 'am-cloud offline'; el.textContent = '离线 · 进度待同步'; return; }
+    el.className = 'am-cloud';
+    if (!syncAt) { el.textContent = '云端账号 · 已登录'; return; }
+    const d = new Date(syncAt);
+    const p = (n) => String(n).padStart(2, '0');
+    el.textContent = '云端已同步 · ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
   function rankInfo(points) {
     return A.rankOf(points === undefined ? (account ? account.rankPoints : 0) : points);
   }
@@ -748,10 +814,33 @@
         kongs: state.kongLog ? state.kongLog.length : 0
       });
       balances[0] = account.coins;
+      if (account.source === 'cloud') {
+        persist({ silent: true });
+        recordRoundCloud(settlement, rankDelta);
+      }
     }
     saveBankroll();
     loadSeatBalances();
     logLine('action', `本局结算 银币=${settlement.deltas.join('/')} 倍数=${settlement.multiplier} 段位分=${rankDelta.join('/')} 余额=${balances.join('/')}`);
+  }
+
+  /** 战绩流水进 mahjong_rounds；失败只记日志，不影响牌局 */
+  function recordRoundCloud(sd, rd) {
+    if (!Cloud || !account || account.source !== 'cloud') return;
+    Cloud.recordRound({
+      nick: account.nick,
+      hallId,
+      baseBet: sd.baseBet,
+      winType: sd.type,
+      seat: 0,
+      delta: sd.deltas[0],
+      rankDelta: (rd && rd[0]) || 0,
+      balanceAfter: account.coins,
+      seatScores: sd.deltas
+    }).then((res) => {
+      if (!res.ok) logLine('action', '战绩上传失败：' + res.error);
+      else logLine('action', '战绩已上传 第' + res.round.id + '条');
+    }).catch((err) => logLine('action', '战绩上传异常：' + ((err && err.message) || err)));
   }
   function resultTitle(r) {
     if (!r) return '本局结束';
@@ -991,37 +1080,68 @@
     $('login-modal').classList.remove('hidden');
     loginTip('');
     setLoginBusy(false);
-    const acc = $('login-account');
-    if (acc) acc.value = o.noFill ? '' : (Auth.lastAccount() || '');
-    const pw = $('login-password');
-    if (pw) { pw.value = ''; pw.type = 'password'; }
-    const eye = $('login-eye');
-    if (eye) { eye.textContent = '显示'; eye.setAttribute('aria-pressed', 'false'); }
+    const phone = $('login-phone');
+    if (phone) phone.value = o.noFill ? '' : (Auth.lastAccount() || '');
+    const code = $('login-code');
+    if (code) code.value = '';
     const rem = $('login-remember');
     if (rem) rem.checked = Auth.rememberEnabled();
-    renderHistory();
+    paintCloudNote();
+    // 万一是在 init 落定前点开的（启动页比 SDK 先露面），落定后补一次重画
+    if (Cloud) Cloud.init().then(() => {
+      if (!$('login-modal').classList.contains('hidden')) paintCloudNote();
+    }).catch(() => {});
     setTimeout(() => {
-      const el = o.focusPassword || (acc && acc.value) ? $('login-password') : acc;
+      const el = phone && phone.value ? $('login-code') : phone;
       if (el) el.focus();
     }, 60);
   }
-  function renderHistory() {
-    const list = Auth.history();
-    const box = $('login-history');
-    if (!box) return;
-    box.innerHTML = '';
-    list.forEach((a) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = a;
-      b.addEventListener('click', () => {
-        $('login-account').value = a;
-        box.classList.add('hidden');
-        $('login-password').focus();
-      });
-      box.appendChild(b);
+
+  /** 登录框底部的说明：云端到底能不能用，在这里说实话 */
+  function paintCloudNote() {
+    const note = $('login-cloud-note');
+    const st = Cloud ? Cloud.status() : { ready: false, error: '云端模块未加载' };
+    if (note) {
+      if (st.ready) {
+        note.textContent = '首次登录自动建号。银币、段位与战绩存在云端，换手机也一样。';
+        note.className = 'login-note';
+      } else {
+        note.textContent = '云端暂不可用：' + (st.error || '未知原因') + '。可以先以游客身份试玩。';
+        note.className = 'login-note warn';
+      }
+    }
+    paintSendCode();
+    ['do-verify', 'do-workbuddy'].forEach((id) => {
+      const b = $(id);
+      if (b) b.disabled = !st.ready || loginBusy;
     });
-    box.classList.toggle('hidden', !list.length);
+    const guestBtn = $('do-guest');
+    if (guestBtn) guestBtn.disabled = loginBusy;   // 游客不依赖云端，云端挂了也能进
+  }
+
+  let codeCooldown = 0;
+  let codeTimer = null;
+  function paintSendCode() {
+    const b = $('do-send-code');
+    if (!b) return;
+    if (codeCooldown > 0) {
+      b.disabled = true;
+      b.textContent = codeCooldown + 's 后重发';
+      return;
+    }
+    const st = Cloud ? Cloud.status() : { ready: false };
+    b.disabled = !st.ready || loginBusy;
+    b.textContent = '获取验证码';
+  }
+  function startCooldown(sec) {
+    codeCooldown = sec || 60;
+    paintSendCode();
+    if (codeTimer) clearInterval(codeTimer);
+    codeTimer = setInterval(() => {
+      codeCooldown -= 1;
+      if (codeCooldown <= 0) { codeCooldown = 0; clearInterval(codeTimer); codeTimer = null; }
+      paintSendCode();
+    }, 1000);
   }
   function loginTip(msg, ok) {
     const t = $('login-tip');
@@ -1031,123 +1151,167 @@
   }
   function setLoginBusy(busy) {
     loginBusy = !!busy;
-    ['do-login', 'do-register'].forEach((id) => {
-      const b = $(id);
-      if (b) b.disabled = loginBusy;
-    });
+    paintCloudNote();
     if (loginBusy) loginTip('正在登录…', true);
   }
   function focusField(field) {
-    const el = field === 'password' ? $('login-password') : $('login-account');
+    const el = field === 'code' ? $('login-code') : $('login-phone');
     if (el) { el.focus(); el.select && el.select(); }
   }
-  function togglePasswordVisible() {
-    const pw = $('login-password');
-    const eye = $('login-eye');
-    if (!pw || !eye) return;
-    const show = pw.type === 'password';
-    pw.type = show ? 'text' : 'password';
-    eye.textContent = show ? '隐藏' : '显示';
-    eye.setAttribute('aria-pressed', String(show));
+
+  /** 第一步：发验证码。只发一次码，校验阶段绝不重新发 */
+  async function doSendCode() {
+    if (loginBusy || codeCooldown > 0) return;
+    const cp = Auth.checkPhone($('login-phone').value);
+    if (!cp.ok) { loginTip(cp.error); focusField('phone'); return; }
+    const btn = $('do-send-code');
+    if (btn) { btn.disabled = true; btn.classList.add('busy'); btn.textContent = '发送中…'; }
+    loginTip('正在发送验证码…', true);
+    let res;
+    try { res = await Auth.sendCode({ phone: cp.value }); }
+    catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
+    if (btn) btn.classList.remove('busy');
+    if (!res.ok) {
+      loginTip(res.error);
+      paintSendCode();
+      focusField(res.field || 'phone');
+      return;
+    }
+    startCooldown(60);
+    loginTip('验证码已发送到 ' + cp.value.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') + '，请查收', true);
+    focusField('code');
   }
 
-  /** 主路径：能登录就登录，没有这个账号就顺手建一个 —— 用户只需要输一次 */
-  async function doLogin() {
+  /** 第二步：提交已拿到的码。失败时保留本次挑战，可以直接重输 */
+  async function doVerify() {
     if (loginBusy) return;
-    const accEl = $('login-account');
-    const pwEl = $('login-password');
-    const ca = Auth.checkAccount(accEl.value);
-    if (!ca.ok) { loginTip(ca.error); focusField('account'); return; }
-    const cp = Auth.checkPassword(pwEl.value);
-    if (!cp.ok) { loginTip(cp.error); focusField('password'); return; }
+    const cp = Auth.checkPhone($('login-phone').value);
+    if (!cp.ok) { loginTip(cp.error); focusField('phone'); return; }
+    const token = String($('login-code').value || '').trim();
+    if (!token) { loginTip('请输入验证码'); focusField('code'); return; }
     setLoginBusy(true);
     let res;
-    try {
-      res = await Auth.signInOrSignUp({ account: ca.value, password: cp.value, nick: ca.value });
-    } catch (err) {
-      setLoginBusy(false);
-      loginTip('登录失败：' + ((err && err.message) || err));
-      return;
-    }
+    try { res = await Auth.verifyCode({ phone: cp.value, token }); }
+    catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
     setLoginBusy(false);
-    if (!res.ok) {
-      loginTip(res.error + (res.code === 'no-account' ? '，首次玩请点「注册新账号」' : ''));
-      focusField(res.field);
-      return;
-    }
+    if (!res.ok) { loginTip(res.error); focusField(res.field || 'code'); return; }
+    if ($('login-remember') && $('login-remember').checked) Auth.rememberAccount(cp.value);
     finishLogin(res);
   }
 
-  /** 显式注册：账号已存在时直接提示去登录，不做静默覆盖 */
-  async function doRegister() {
+  /** 跳转式登录（WorkBuddy / 微信）：同标签页授权，回调由 startSession() 统一处理 */
+  async function doOAuth(provider) {
     if (loginBusy) return;
-    const accEl = $('login-account');
-    const pwEl = $('login-password');
-    const ca = Auth.checkAccount(accEl.value);
-    if (!ca.ok) { loginTip(ca.error); focusField('account'); return; }
-    const cp = Auth.checkPassword(pwEl.value);
-    if (!cp.ok) { loginTip(cp.error); focusField('password'); return; }
     setLoginBusy(true);
     let res;
-    try {
-      res = await Auth.signUp({ account: ca.value, password: cp.value, nick: ca.value });
-    } catch (err) {
-      setLoginBusy(false);
-      loginTip('注册失败：' + ((err && err.message) || err));
-      return;
-    }
+    try { res = await Auth.startOAuth(provider); }
+    catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
+    if (res.ok && res.redirecting) return;       // 正在跳转，按钮保持禁用
     setLoginBusy(false);
-    if (!res.ok) {
-      loginTip(res.error + (res.code === 'duplicate' ? '' : ''));
-      focusField(res.field);
-      return;
-    }
+    if (!res.ok) loginTip(res.error);
+  }
+  function doWorkBuddy() { return doOAuth('workbuddy'); }
+
+  /** 游客：明确标注进度只存本机，绝不冒充云端账号 */
+  async function doGuest() {
+    if (loginBusy) return;
+    Auth.useCloud(false);
+    setLoginBusy(true);
+    const id = guestDeviceId();
+    let res;
+    try {
+      res = await Auth.signInOrSignUp({
+        account: '游客' + id.slice(-6),
+        password: 'guest-' + id,
+        nick: '游客' + id.slice(-4)
+      });
+    } catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
+    setLoginBusy(false);
+    if (!res.ok) { loginTip('游客模式进入失败：' + res.error); return; }
     finishLogin(res);
   }
+  function guestDeviceId() {
+    let id = '';
+    try { id = localStorage.getItem('shiping-guest-id-v1') || ''; } catch (_) { id = ''; }
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 10);
+      try { localStorage.setItem('shiping-guest-id-v1', id); } catch (_) { /* ignore */ }
+    }
+    return id;
+  }
 
-  /** 登录/注册成功后统一收口：落账号 → 关弹层 → 见面礼 → 赛季流程 */
-  function finishLogin(res) {
-    const created = !!(res.created || res.autoCreated);
-    account = res.account;
+  /** 登录成功后统一收口：落账号 → 关弹层 → 见面礼 → 赛季流程 */
+  async function finishLogin(res) {
+    account = (res && res.account) || null;
+    if (!account) { loginTip('登录没有返回账号信息，请重试'); return; }
+    if (codeTimer) { clearInterval(codeTimer); codeTimer = null; codeCooldown = 0; }
     hideAllLayers();
     toggleAccountMenu(false);
     playSound('ui');
-    refreshAccount();
     loadSeatBalances();
-    if (created) {
-      toast('账号已创建，欢迎 ' + account.nick);
-      grantWelcome();
-    } else {
-      toast('欢迎回来，' + account.nick);
-    }
+    paintSync();
+    if (res.created) toast('账号已创建，欢迎 ' + account.nick);
+    else toast('欢迎回来，' + account.nick);
+    await maybeWelcome();
     maybeSeasonFlow();
   }
 
-  /** 新号见面礼：截图里的「恭喜获得 银币 ×4000」 */
-  function grantWelcome() {
-    if (!account) return;
+  /** 见面礼只发一次：以账号自己的 welcomeGranted 为准，换设备也不会重复领 */
+  async function maybeWelcome() {
+    if (!account || account.welcomeGranted) return;
     account.coins += 4000;
-    account = A.update(store(), account);
+    account.welcomeGranted = true;
     loadSeatBalances();
     showReward(4000, '银币');
+    await persist({ silent: true });
   }
 
-  /* ---------------- 账号浮层：切换 / 退出 / 清档 ---------------- */
+  /* ---------------- 账号浮层：改昵称 / 切换 / 退出 / 清档 ---------------- */
   function renderAccountMenu() {
     if (!account) return;
     const r = rankInfo();
     const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
     set('am-face', (account.nick || '牌').slice(0, 1));
     set('am-nick', account.nick);
-    set('am-account', '账号 ' + account.account);
+    set('am-account', (account.source === 'cloud' ? '云端 · ' : '游客 · ') + account.account);
     set('am-rank', r.name + ' · 段位分 ' + r.text);
+    const box = $('am-rename-box');
+    if (box) box.classList.add('hidden');
+    paintSync();
   }
   function toggleAccountMenu(force) {
     const menu = $('account-menu');
     if (!menu) return;
     const show = force === undefined ? menu.classList.contains('hidden') : !!force;
     if (show) renderAccountMenu();
+    else if (!show) {
+      const box = $('am-rename-box');
+      if (box) box.classList.add('hidden');
+    }
     menu.classList.toggle('hidden', !show);
+  }
+  function toggleRename(force) {
+    const box = $('am-rename-box');
+    if (!box) return;
+    const show = force === undefined ? box.classList.contains('hidden') : !!force;
+    if (show) {
+      const input = $('am-nick-input');
+      if (input) { input.value = account ? account.nick : ''; input.focus(); input.select && input.select(); }
+    }
+    box.classList.toggle('hidden', !show);
+  }
+  async function saveNick() {
+    if (!account) return;
+    const input = $('am-nick-input');
+    const v = String((input && input.value) || '').trim();
+    if (v.length < 2) { toast('昵称至少 2 个字'); return; }
+    if (v.length > 12) { toast('昵称最多 12 个字'); return; }
+    account.nick = v;
+    toggleRename(false);
+    renderAccountMenu();
+    renderHome();
+    const res = await persist();
+    if (res.ok) toast('昵称已保存' + (account.source === 'cloud' ? '到云端' : '到本机'));
   }
   /** 退出登录；switchMode 为真时退出后立刻弹登录框，方便换号 */
   async function logoutAccount(switchMode) {
@@ -1159,6 +1323,11 @@
     balances = [0, 0, 0, 0];
     settlement = null;
     rankDelta = null;
+    syncState = 'idle';
+    syncAt = 0;
+    savePending = false;
+    retryTimer && clearTimeout(retryTimer);
+    retryTimer = null;
     hideAllLayers();
     hideResult();
     toggleAccountMenu(false);
@@ -1169,28 +1338,33 @@
       toast('已退出登录');
     }
   }
-  function clearLocalSave() {
-    const ok = window.confirm('清空本机存档会删除这台设备上的所有账号、银币与段位，无法恢复。确定继续吗？');
-    if (!ok) return;
+  async function clearLocalSave() {
+    const isCloud = !!(account && account.source === 'cloud');
+    const msg = isCloud
+      ? '这会清掉这台设备上的登录状态与本地缓存。云端档案（银币、段位、战绩）不会被删除，重新登录还能找回。确定继续吗？'
+      : '清空本机存档会删除这台设备上的游客账号、银币与段位，无法恢复。确定继续吗？';
+    if (!window.confirm(msg)) return;
+    if (isCloud) { try { await Auth.signOut(); } catch (_) { /* ignore */ } }
     const removed = Auth.clearLocal();
     account = null;
     balances = [0, 0, 0, 0];
     stopAi();
     epoch += 1;
     state = null;
+    syncState = 'idle';
+    syncAt = 0;
     hideAllLayers();
     hideResult();
     toggleAccountMenu(false);
     showScreen('splash');
-    toast('已清空 ' + removed.length + ' 项本机数据');
+    toast('已清空 ' + removed.length + ' 项本机数据' + (isCloud ? '，云端档案仍在' : ''));
   }
 
   /* ---------------- 赛季流程 ---------------- */
-  function seasonSeenKey() { return 'honghe-season-seen-' + A.SEASON.id; }
+  /** 赛季开屏只放一次：这个状态跟着账号走（云端存 season_seen，游客也存在自己的账号对象里） */
   function maybeSeasonFlow() {
-    let seen = false;
-    try { seen = !!localStorage.getItem(seasonSeenKey()); } catch (_) { seen = false; }
-    if (seen) { enterHome(); return; }
+    if (!account) { showScreen('splash'); return; }
+    if (account.seasonSeen) { enterHome(); return; }
     showScreen('season');
   }
   function gotoInherit() {
@@ -1202,7 +1376,10 @@
     showScreen('inherit');
   }
   function finishSeason() {
-    try { localStorage.setItem(seasonSeenKey(), '1'); } catch (_) { /* ignore */ }
+    if (account) {
+      account.seasonSeen = true;
+      persist({ silent: true });
+    }
     enterHome();
     toast('S25 赛季开始，祝你旗开得胜');
   }
@@ -1433,9 +1610,10 @@
   function doSignin() {
     const res = A.claimSignin(store(), account, new Date());
     if (!res.ok) { toast(res.error); return; }
-    refreshAccount();
+    account = res.account || account;
     renderSignin();
     renderHome();
+    persist({ silent: true });
     showReward(res.coins, '银币');
     playSound('coin');
   }
@@ -1444,9 +1622,9 @@
     if (!st.canClaimStreak) { toast('连续登录 3 天后可领取'); return; }
     account.gold += st.streakReward;
     account.signin.streakClaimed = (account.signin.streakClaimed || 0) + 1;
-    account = A.update(store(), account);
     renderSignin();
     renderHome();
+    persist({ silent: true });
     showReward(st.streakReward, '金条');
   }
   function openBack() {
@@ -1485,9 +1663,10 @@
         btn.addEventListener('click', () => {
           const res = A.claimBack(store(), account, d);
           if (!res.ok) { toast(res.error); return; }
-          refreshAccount();
+          account = res.account || account;
           renderBack();
           renderHome();
+          persist({ silent: true });
           showReward(res.coins, '银币');
         });
         cell.appendChild(btn);
@@ -1524,33 +1703,46 @@
   }
   function bindShell() {
     on('btn-wechat', 'click', () => {
-      toast('微信登录还没接入，先用账号登录');
-      openLogin();
+      if (!Cloud || !Cloud.status().ready) {
+        openLogin();
+        loginTip('云端暂不可用：' + ((Cloud && Cloud.status().error) || '模块未加载'));
+        return;
+      }
+      Auth.useCloud(true);
+      doOAuth('wechat').catch(() => {});
     });
     on('btn-phone', 'click', () => openLogin());
     on('splash-cs', 'click', () => toast('客服：honghe@example.com'));
     on('login-cs', 'click', () => toast('客服：honghe@example.com'));
     on('login-close', 'click', () => { $('login-modal').classList.add('hidden'); setLoginBusy(false); });
-    on('do-login', 'click', () => { doLogin().catch((e) => loginTip('登录失败：' + e.message)); });
-    on('do-register', 'click', () => { doRegister().catch((e) => loginTip('注册失败：' + e.message)); });
-    on('login-eye', 'click', togglePasswordVisible);
-    on('login-clear', 'click', () => { $('login-account').value = ''; $('login-account').focus(); });
-    on('login-caret', 'click', () => $('login-history').classList.toggle('hidden'));
+    on('do-send-code', 'click', () => { doSendCode().catch((e) => loginTip('发送失败：' + ((e && e.message) || e))); });
+    on('do-verify', 'click', () => { doVerify().catch((e) => loginTip('登录失败：' + ((e && e.message) || e))); });
+    on('do-workbuddy', 'click', () => { doWorkBuddy().catch((e) => loginTip('登录失败：' + ((e && e.message) || e))); });
+    on('do-guest', 'click', () => { doGuest().catch((e) => loginTip('进入失败：' + ((e && e.message) || e))); });
+    on('login-clear', 'click', () => { const p = $('login-phone'); if (p) { p.value = ''; p.focus(); } });
     on('login-remember', 'change', (e) => {
       Auth.setRemember(e.target.checked);
-      if (e.target.checked && $('login-account').value.trim()) Auth.rememberAccount($('login-account').value.trim());
+      const p = $('login-phone');
+      if (e.target.checked && p && p.value.trim()) Auth.rememberAccount(p.value.trim());
     });
-    on('forgot-pw', 'click', () => loginTip('本机账号没有找回通道：换一个账号重新开始，或清空本机存档', false));
-    on('login-password', 'keydown', (e) => { if (e.key === 'Enter') { doLogin().catch(() => {}); } });
-    on('login-account', 'keydown', (e) => { if (e.key === 'Enter') $('login-password').focus(); });
+    on('forgot-pw', 'click', () => loginTip('收不到验证码：先确认手机号无误、留意拦截短信，稍后再点「获取验证码」'));
+    on('login-code', 'keydown', (e) => { if (e.key === 'Enter') doVerify().catch(() => {}); });
+    on('login-phone', 'keydown', (e) => { if (e.key === 'Enter') { const c = $('login-code'); if (c) c.focus(); } });
+    on('login-phone', 'input', () => { if (loginTip) loginTip(''); });
 
     on('home-player', 'click', (e) => { e.stopPropagation(); toggleAccountMenu(); });
     on('home-player', 'keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAccountMenu(); }
     });
+    on('am-rename', 'click', () => toggleRename());
+    on('am-nick-save', 'click', () => { saveNick().catch(() => {}); });
+    on('am-nick-input', 'keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveNick().catch(() => {}); }
+      if (e.key === 'Escape') toggleRename(false);
+    });
     on('am-switch', 'click', () => { logoutAccount(true).catch(() => {}); });
     on('am-logout', 'click', () => { logoutAccount(false).catch(() => {}); });
-    on('am-clear', 'click', clearLocalSave);
+    on('am-clear', 'click', () => { clearLocalSave().catch(() => {}); });
     document.addEventListener('click', (e) => {
       const menu = $('account-menu');
       if (!menu || menu.classList.contains('hidden')) return;
@@ -1811,9 +2003,13 @@
       account: account ? {
         id: account.id, account: account.account, nick: account.nick, coins: account.coins, gold: account.gold,
         rankPoints: account.rankPoints, rank: rankInfo().name, rankText: rankInfo().text,
-        activated: !!account.activated, stats: Object.assign({}, account.stats)
+        activated: !!account.activated, stats: Object.assign({}, account.stats),
+        seasonSeen: !!account.seasonSeen, welcomeGranted: !!account.welcomeGranted,
+        source: account.source || 'guest', rowId: account.rowId || null
       } : null,
-      auth: { lastAccount: Auth.lastAccount(), history: Auth.history(), remember: Auth.rememberEnabled },
+      auth: { lastAccount: Auth.lastAccount(), history: Auth.history(), remember: Auth.rememberEnabled(), mode: Auth.currentMode() },
+      cloud: Cloud ? Cloud.status() : { ready: false, error: '云端模块未加载' },
+      sync: { state: syncState, at: syncAt, pending: savePending },
       hall: A.hallOf(hallId).id,
       hallName: A.hallOf(hallId).name,
       baseBet: A.hallOf(hallId).baseBet,
@@ -1825,36 +2021,61 @@
       layers: ['login-modal', 'signin-modal', 'back-modal', 'reward-modal', 'rules-modal', 'result-modal']
         .filter((id) => { const el = $(id); return el && !el.classList.contains('hidden'); })
     });
-    function debugAuth(kind, accName, password, nick, skipReward) {
+    /** 测试入口：走游客模式直接拿到一个账号，不依赖短信与云端 */
+    async function debugAuth(kind, accName, password, nick, skipReward) {
       const acc = String(accName || '').trim();
       const pw = String(password || '');
+      Auth.useCloud(false);
       const res = kind === 'register'
-        ? A.register(store(), { account: acc, password: pw, nick: nick || acc })
-        : A.login(store(), { account: acc, password: pw });
+        ? await Auth.signUp({ account: acc, password: pw, nick: nick || acc })
+        : await Auth.signIn({ account: acc, password: pw });
       if (!res.ok) return res;
-      A.setSession(store(), res.account.id);
-      Auth.rememberAccount(res.account.account);
       account = res.account;
-      hideAllLayers();
-      if (skipReward) { refreshAccount(); loadSeatBalances(); maybeSeasonFlow(); }
-      else finishLogin(res);
+      if (skipReward) {
+        account.seasonSeen = true;
+        hideAllLayers();
+        loadSeatBalances();
+        paintSync();
+        await persist({ silent: true });
+        enterHome();
+      } else {
+        await finishLogin(res);
+      }
       return { ok: true, id: account.id, nick: account.nick, coins: account.coins, screen: screenId, isNew: kind === 'register' };
     }
     window.__shipingMahjongRegister = (accName, password, nick, skipReward) => debugAuth('register', accName, password, nick, skipReward);
     window.__shipingMahjongLogin = (accName, password, skipReward) => debugAuth('login', accName, password, '', skipReward);
-    window.__shipingMahjongLogout = () => {
-      A.setSession(store(), '');
-      account = null;
-      hideAllLayers();
-      hideResult();
-      toggleAccountMenu(false);
-      showScreen('splash');
+    window.__shipingMahjongLogout = async () => {
+      await logoutAccount(false);
       return true;
     };
     window.__shipingMahjongAuth = () => ({
       lastAccount: Auth.lastAccount(), history: Auth.history(), remember: Auth.rememberEnabled(),
-      provider: Auth.currentProvider().id
+      provider: Auth.currentProvider().id, mode: Auth.currentMode(),
+      cloud: Cloud ? Cloud.status() : { ready: false, error: '云端模块未加载' }
     });
+    /** 云端体检：状态 + 会话 + 一次真实数据面读取（未登录应被 RLS 挡回） */
+    window.__shipingMahjongCloud = async () => {
+      const st = Cloud ? Cloud.status() : { ready: false, error: '云端模块未加载' };
+      const out = { status: st, mode: Auth.currentMode(), session: null, probe: null, account: null,
+        sync: { state: syncState, at: syncAt, pending: savePending } };
+      if (account) {
+        out.account = { source: account.source || 'guest', rowId: account.rowId || null, coins: account.coins,
+          gold: account.gold, rankPoints: account.rankPoints, welcomeGranted: !!account.welcomeGranted,
+          seasonSeen: !!account.seasonSeen };
+      }
+      if (Cloud && st.ready) {
+        const s = await Cloud.getSession();
+        if (s.ok && s.session) out.session = { uid: Cloud.uidOf(s.session), label: Cloud.labelOf(s.session.user) };
+        const q = await Cloud.database().from(Cloud.PLAYERS).select('id, coins').limit(1);
+        out.probe = {
+          ok: !q.error,
+          rows: Array.isArray(q.data) ? q.data.length : 0,
+          error: q.error ? (q.error.code || q.error.message || 'unknown') : null
+        };
+      }
+      return out;
+    };
     window.__shipingMahjongAccountMenu = (force) => {
       toggleAccountMenu(force);
       const menu = $('account-menu');
@@ -1862,17 +2083,33 @@
     };
     window.__shipingMahjongLoginForm = () => ({
       open: !$('login-modal').classList.contains('hidden'),
-      account: $('login-account') ? $('login-account').value : '',
-      passwordType: $('login-password') ? $('login-password').type : '',
+      phone: $('login-phone') ? $('login-phone').value : '',
+      code: $('login-code') ? $('login-code').value : '',
       remember: $('login-remember') ? $('login-remember').checked : null,
       tip: $('login-tip') ? $('login-tip').textContent : '',
+      note: $('login-cloud-note') ? $('login-cloud-note').textContent : '',
       busy: loginBusy,
-      historyCount: $('login-history') ? $('login-history').children.length : 0
+      cooldown: codeCooldown,
+      sendText: $('do-send-code') ? $('do-send-code').textContent : '',
+      verifyDisabled: $('do-verify') ? $('do-verify').disabled : null,
+      workbuddyDisabled: $('do-workbuddy') ? $('do-workbuddy').disabled : null,
+      guestDisabled: $('do-guest') ? $('do-guest').disabled : null
     });
+    window.__shipingMahjongSendCode = (phone) => {
+      const el = $('login-phone');
+      if (el) el.value = String(phone || '');
+      return doSendCode().then(() => window.__shipingMahjongLoginForm());
+    };
+    window.__shipingMahjongVerifyCode = (code) => {
+      const el = $('login-code');
+      if (el) el.value = String(code || '');
+      return doVerify().then(() => window.__shipingMahjongLoginForm());
+    };
     window.__shipingMahjongEnterHome = () => { if (!account) return false; enterHome(); return screenId; };
     window.__shipingMahjongSkipSeason = () => {
       if (!account) return false;
-      try { localStorage.setItem(seasonSeenKey(), '1'); } catch (_) { /* ignore */ }
+      account.seasonSeen = true;
+      persist({ silent: true });
       enterHome();
       return screenId;
     };
@@ -1886,8 +2123,14 @@
     window.__shipingMahjongOpenBack = () => { if (!account) return false; openBack(); return true; };
     window.__shipingMahjongResetProgress = () => {
       Auth.clearLocal();
+      Auth.useCloud(true);
       account = null;
       balances = loadBankroll();
+      syncState = 'idle';
+      syncAt = 0;
+      savePending = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
       hideAllLayers();
       hideResult();
       toggleAccountMenu(false);
@@ -2001,21 +2244,56 @@
     } catch (_) { return false; }
   }
 
+  /** 启动：先弄清云端能不能用，再处理授权回跳，最后恢复会话。
+   *  任何一步失败都停在启动页并说明原因，绝不偷偷降级成游客。 */
+  async function startSession() {
+    let mode = 'cloud';
+    try { mode = localStorage.getItem(Auth.KEY_MODE) || 'cloud'; } catch (_) { mode = 'cloud'; }
+    Auth.useCloud(mode !== 'guest');
+
+    if (Cloud) await Cloud.init();
+    // SDK 是 CDN 异步拉的：启动页先露出来，手快的人可能在 init 落定前就点开了登录框，
+    // 那时画的是"云端暂不可用"。init 一落定就重画一次，别让人对着一个点不动的按钮。
+    paintCloudNote();
+
+    // 授权回跳必须在任何人脸把关之前处理：code 是一次性的，被拦一次就作废
+    if (Cloud && Cloud.status().ready) {
+      let cb = null;
+      try { cb = await Auth.handleCallback(); } catch (_) { cb = null; }
+      if (cb && cb.handled) {
+        if (cb.ok && cb.account) { await finishLogin(cb); return; }
+        openLogin();
+        loginTip(cb.error || '授权登录失败，请重试');
+        return;
+      }
+    }
+
+    let acc = null;
+    try { acc = await Auth.current(); } catch (_) { acc = null; }
+    if (acc) {
+      account = acc;
+      loadSeatBalances();
+      paintSync();
+      await maybeWelcome();
+      maybeSeasonFlow();
+      return;
+    }
+    showScreen('splash');
+  }
+
   function boot() {
     applyBrand();
-    if (!storageAvailable()) toast('浏览器禁用了本地存储，账号和进度无法保存');
+    if (!storageAvailable()) toast('浏览器禁用了本地存储，登录状态与游客进度都无法保存');
     syncSoundButton();
     bind();
     bindShell();
-    loadAccount();
     loadSeatBalances();
     installDebugApi();
     heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
-    if (account) {
-      maybeSeasonFlow();
-    } else {
+    startSession().catch((err) => {
       showScreen('splash');
-    }
+      toast('启动失败：' + ((err && err.message) || err));
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

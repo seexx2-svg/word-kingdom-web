@@ -27,9 +27,9 @@ const MOB = { width: 390, height: 844 };
   await hold(360);
   await shot('shell-02-login.jpg');
 
-  await desk.evaluate(() => {
+  await desk.evaluate(async () => {
     document.getElementById('login-modal').classList.add('hidden');
-    window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯');
+    await window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯');
   });
   await hold(500);
   await shot('shell-03-reward.jpg');
@@ -86,16 +86,15 @@ const MOB = { width: 390, height: 844 };
   await hold(320);
   await desk.evaluate(() => {
     document.getElementById('btn-phone').click();
-    document.getElementById('login-account').value = '小双州黯';
-    document.getElementById('login-password').value = 'x';
-    document.getElementById('do-login').click();
+    document.getElementById('login-phone').value = '1380000';
+    document.getElementById('do-send-code').click();
   });
-  await hold(360);
+  await hold(480);
   await shot('shell-16-login-error.jpg');
 
-  await desk.evaluate(() => {
+  await desk.evaluate(async () => {
     document.getElementById('login-modal').classList.add('hidden');
-    window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯', true);
+    await window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯', true);
     window.__shipingMahjongSkipSeason();
     window.__shipingMahjongAccountMenu(true);
   });
@@ -106,9 +105,9 @@ const MOB = { width: 390, height: 844 };
   const mob = await browser.newPage({ viewport: MOB, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   await mob.goto(srv.origin + '/?debug=1', { waitUntil: 'load' });
   await mob.waitForFunction(() => typeof window.__shipingMahjongDebug === 'function');
-  await mob.evaluate(() => {
+  await mob.evaluate(async () => {
     window.__shipingMahjongResetProgress();
-    window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯', true);
+    await window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯', true);
     window.__shipingMahjongSkipSeason();
   });
   await mob.waitForTimeout(420);

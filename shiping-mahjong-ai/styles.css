@@ -2154,3 +2154,49 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   .result-actions{gap:6px}
   .result-actions .btn-cyan,.result-actions .btn-green-solid,.result-actions .btn-orange{min-width:0;flex:1 1 0;font-size:12px;height:38px}
 }
+
+/* ==========================================================================
+   12. 云服务登录（v0.6）
+   ========================================================================== */
+.login-row{align-items:center}
+.login-input{position:relative}
+.code-btn{flex:0 0 auto;height:32px;margin-left:6px;padding:0 10px;border-radius:8px;
+  border:1px solid #c8a05c;background:linear-gradient(#fdf3dc,#f0dcb4);color:#6a4413;
+  font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer}
+.code-btn:disabled{opacity:.55;cursor:default}
+.code-btn.busy{opacity:.7}
+.btn-workbuddy{width:100%;height:42px;border-radius:999px;cursor:pointer;
+  border:1px solid #2f6b52;background:linear-gradient(#1c5a42,#123f2e);color:#eaf7ee;
+  font-size:14px;font-weight:600;letter-spacing:.5px}
+.btn-workbuddy:hover{background:linear-gradient(#21684c,#154835)}
+.btn-workbuddy:disabled{opacity:.5;cursor:default}
+.login-or{display:flex;align-items:center;gap:10px;margin:10px 0;color:#9b8460;font-size:12px}
+.login-or::before,.login-or::after{content:'';flex:1 1 auto;height:1px;background:#e2d3b6}
+.login-guest{display:block;width:100%;margin-top:10px;border:0;background:none;cursor:pointer;
+  color:#8a6a3c;font-size:12px;text-decoration:underline;text-underline-offset:3px;padding:4px 0}
+.login-guest:hover{color:#5a3a12}
+.login-note{color:#8a7550}
+
+/* 账号浮层：云端同步状态 + 改昵称 */
+.am-cloud{margin:2px 0 6px;font-size:11px;color:#4e7a5e}
+.am-cloud.offline{color:#b4552f}
+.am-cloud.guest{color:#8a7550}
+.am-rename{display:flex;gap:6px;padding:4px 8px 8px}
+.am-rename input{flex:1 1 auto;min-width:0;height:30px;padding:0 8px;border-radius:7px;
+  border:1px solid #d9c6a4;background:#fffdf6;color:#4a3113;font-size:13px}
+.am-rename button{flex:0 0 auto;height:30px;padding:0 12px;border-radius:7px;cursor:pointer;
+  border:1px solid #2f6b52;background:#1c5a42;color:#eaf7ee;font-size:12px;font-weight:600}
+
+@media(max-width:760px){
+  .login-card{width:min(94vw,360px)}
+  .code-btn{padding:0 8px;font-size:11px}
+  .btn-workbuddy{height:40px;font-size:13px}
+}
+
+/* 主按钮必须排在验证码之后：历史规则里有 .login-primary{order:-1} 会把它顶到最上面 */
+.login-body .login-primary{order:0;width:100%;height:44px;border-radius:999px;font-size:15px;letter-spacing:2px}
+.login-body{gap:12px}
+.login-tip:empty{display:none}
+
+/* .am-rename 的 display:flex 与 .hidden 同权重，靠后面的规则会赢，必须显式压回来 */
+.am-rename.hidden{display:none}

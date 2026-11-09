@@ -62,34 +62,54 @@ async function launch() {
   });
 }
 
+/**
+ * 本地测试跑在 127.0.0.1，而云端数据面只接受应用的发布域名（Origin 精确匹配），
+ * 所以本地跑时 /\.cloud\/ 请求注定被拒。这属于环境边界，不是脚本错误：
+ * 单独收进 __cloudNoise，正文断言只看真正的脚本/资源错误。
+ * 真实的云端连通性由 tests/cloud-live.cjs 在发布域名上验证。
+ */
+const CLOUD_NOISE = /workbuddy\.host\/\.cloud\/|\.cloud\/(auth|database|storage|llm)\//;
+
+function pushError(errors, text, noise) {
+  if (CLOUD_NOISE.test(text)) { noise.push(text); return; }
+  errors.push(text);
+}
+
 async function newPage(browser, origin, viewport) {
   const page = await browser.newPage({ viewport: viewport || { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   const errors = [];
-  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  const noise = [];
+  page.on('pageerror', (e) => pushError(errors, 'pageerror: ' + e.message, noise));
+  page.on('console', (m) => { if (m.type() === 'error') pushError(errors, 'console: ' + m.text(), noise); });
   page.on('requestfailed', (r) => {
     const t = r.failure() && r.failure().errorText;
-    if (t !== 'net::ERR_ABORTED') errors.push('request: ' + r.url() + ' ' + t);
+    if (t !== 'net::ERR_ABORTED') pushError(errors, 'request: ' + r.url() + ' ' + t, noise);
   });
   await page.goto(origin + '/?debug=1', { waitUntil: 'load' });
   await page.waitForFunction(() => typeof window.__shipingMahjongDebug === 'function');
   page.__errors = errors;
+  page.__cloudNoise = noise;
   return page;
 }
 
-/** 清空本地进度 → 注册一个新号 → 跳过赛季动画 → 直接进桌。
+/** 清空本地进度 → 建一个游客账号 → 跳过赛季动画 → 直接进桌。
  *  外壳（启动页/登录/赛季/主界面/场次）在这些几何与规则用例里只是前置步骤，
  *  用调试接口走最短路径，避免每个用例都重复点一遍界面。 */
 async function enterTable(page, opts) {
   const o = opts || {};
-  const info = await page.evaluate((o) => {
-    window.__shipingMahjongResetProgress();
-    const name = o.account || ('t' + Date.now().toString(36) + Math.floor(Math.random() * 1000));
-    const res = window.__shipingMahjongRegister(name, 'abcd', o.nick || name, true);
+  await page.evaluate(() => { window.__shipingMahjongResetProgress(); });
+  const name = o.account || ('t' + Date.now().toString(36) + Math.floor(Math.random() * 1000));
+  const info = await page.evaluate(async (p) => {
+    const res = await window.__shipingMahjongRegister(p.name, 'abcd', p.nick || p.name, true);
     window.__shipingMahjongSkipSeason();
-    const table = window.__shipingMahjongStartTable(o.hall || 'novice');
-    return { registered: res && res.ok, screen: table && table.screen, hall: table && table.hall, baseBet: table && table.baseBet };
-  }, o);
+    const table = window.__shipingMahjongStartTable(p.hall || 'novice');
+    return {
+      registered: !!(res && res.ok),
+      screen: table && table.screen,
+      hall: table && table.hall,
+      baseBet: table && table.baseBet
+    };
+  }, { name, nick: o.nick, hall: o.hall });
   if (!info.registered || info.screen !== 'table') {
     throw new Error('进入牌桌失败：' + JSON.stringify(info));
   }

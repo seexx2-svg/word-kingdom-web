@@ -246,5 +246,5 @@ test('可以替换成别的认证后端（为接服务端留的口子）', async
   assert.equal(res.ok, true);
   assert.equal(called, 1);
   Auth.useStore(mem);           // 复原，避免影响后续用例
-  assert.equal(Auth.currentProvider().id, 'local');
+  assert.equal(Auth.currentProvider().id, 'guest');
 });

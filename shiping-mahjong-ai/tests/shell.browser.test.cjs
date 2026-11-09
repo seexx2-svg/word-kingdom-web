@@ -28,14 +28,17 @@ async function freshPage(viewport) {
   return page;
 }
 
-/** 用界面真实点击注册一个新号（不走调试接口），停在赛季页 */
-async function registerByClick(page, account) {
+/** 用界面真实点击以「游客」进入（不依赖短信与云端），停在赛季页。
+ *  账号密码那条路已经在 login.browser.test.cjs 里单独测，这里只需要一个能进游戏的账号。 */
+async function registerByClick(page) {
   await page.click('#btn-phone');
   await page.waitForSelector('#login-modal:not(.hidden)');
-  await page.fill('#login-account', account);
-  await page.fill('#login-password', 'abcd1234');
-  await page.click('#do-register');
-  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'season', null, { timeout: 5000 });
+  await page.waitForFunction(() => {
+    const b = document.getElementById('do-guest');
+    return b && !b.disabled;
+  }, null, { timeout: 8000 });
+  await page.click('#do-guest');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'season', null, { timeout: 8000 });
 }
 
 test('启动页：未登录只显示启动页，登录入口齐全且不报错', async () => {
@@ -48,29 +51,39 @@ test('启动页：未登录只显示启动页，登录入口齐全且不报错',
   await page.close();
 });
 
-test('登录弹窗：真实点击打开、校验空输入、可正常关闭', async () => {
+test('登录弹窗：手机号校验在本地完成，游客入口永远可用', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
   await page.click('#btn-phone');
   await page.waitForSelector('#login-modal:not(.hidden)');
-  assert.equal(await exists(page, '#do-login'), true);
-  assert.equal(await exists(page, '#do-register'), true);
 
-  await page.click('#do-login');
-  assert.match(await text(page, '#login-tip'), /请输入账号/, '空账号应提示');
+  assert.equal(await exists(page, '#login-phone'), true, '手机号输入框');
+  assert.equal(await exists(page, '#login-code'), true, '验证码输入框');
+  assert.equal(await exists(page, '#do-send-code'), true, '获取验证码按钮');
+  assert.equal(await exists(page, '#do-verify'), true, '登录按钮');
+  assert.equal(await exists(page, '#do-workbuddy'), true, 'WorkBuddy 登录入口');
+  assert.equal(await exists(page, '#do-guest'), true, '游客入口');
 
-  await page.fill('#login-account', 'no_such_player');
-  await page.click('#do-login');
-  assert.match(await text(page, '#login-tip'), /请输入密码/, '空密码应提示');
+  await page.click('#do-verify');
+  assert.match(await text(page, '#login-tip'), /请输入手机号/, '空手机号应提示');
+
+  await page.fill('#login-phone', '1380000111');        // 故意少一位
+  await page.click('#do-send-code');
+  assert.match(await text(page, '#login-tip'), /11 位/, '号码位数不对应就地拦下');
+
+  await page.fill('#login-phone', '13800001111');
+  await page.click('#do-verify');
+  assert.match(await text(page, '#login-tip'), /请输入验证码/, '没填码应提示');
   assert.equal((await shell(page)).screen, 'splash', '校验失败不能跳转');
 
   await page.click('#login-close');
   assert.equal(await page.evaluate(() => document.querySelector('#login-modal').classList.contains('hidden')), true);
+  assert.deepEqual(page.__errors, [], '登录弹窗交互不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
 
 test('注册：新号自动发 4,000 银币见面礼，随后进入 S25 赛季页', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await registerByClick(page, 'shell_reg_1');
+  await registerByClick(page);
   // 新号见面礼
   assert.equal(await page.evaluate(() => document.querySelector('#reward-modal').classList.contains('hidden')), false, '应弹「恭喜获得」');
   assert.match(await text(page, '#reward-amount'), /4,000/);
@@ -85,7 +98,7 @@ test('注册：新号自动发 4,000 银币见面礼，随后进入 S25 赛季�
 
 test('赛季：点击进「赛季继承」，再点进主界面', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await registerByClick(page, 'shell_reg_2');
+  await registerByClick(page);
   await page.click('#reward-ok');
 
   await page.click('#screen-season');
@@ -97,13 +110,13 @@ test('赛季：点击进「赛季继承」，再点进主界面', async () => {
 
   await page.click('#screen-inherit');
   await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home', null, { timeout: 5000 });
-  assert.equal(await page.evaluate(() => localStorage.getItem('honghe-season-seen-S25')), '1', '赛季动画只放一次');
+  assert.equal((await shell(page)).account.seasonSeen, true, '赛季开屏的状态记在账号上，只放一次');
   await page.close();
 });
 
 test('主界面：12 个功能格 / 天梯 4 条 / 其他游戏 4 张，钱包与段位显示正确', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await registerByClick(page, 'shell_reg_3');
+  await registerByClick(page);
   await page.click('#reward-ok');
   await page.click('#screen-season');
   await page.click('#screen-inherit');
@@ -116,14 +129,14 @@ test('主界面：12 个功能格 / 天梯 4 条 / 其他游戏 4 张，钱包�
   assert.equal(await text(page, '#home-coins'), '9,000', '银币含见面礼');
   assert.equal(await text(page, '#home-gold'), '91');
   assert.equal(await text(page, '#home-rank'), '新秀一阶');
-  assert.equal(await text(page, '#home-nick'), 'shell_reg_3');
+  assert.equal(await text(page, '#home-nick'), (await shell(page)).account.nick, '主界面昵称就是当前账号昵称');
   assert.deepEqual(page.__errors, [], '主界面不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
 
 test('场次：三档场次，银币不足的档位不可进入', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await registerByClick(page, 'shell_reg_4');
+  await registerByClick(page);
   await page.click('#reward-ok');
   await page.click('#screen-season');
   await page.click('#screen-inherit');
@@ -153,8 +166,8 @@ test('场次：三档场次，银币不足的档位不可进入', async () => {
 
 test('对局：进桌后四家都有银币与段位，底注写进桌面', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_tbl_1', 'abcd1234', '牌桌测试', true);
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_tbl_1', 'abcd1234', '牌桌测试', true);
     window.__shipingMahjongSkipSeason();
     window.__shipingMahjongStartTable('novice');
     window.__shipingMahjongSetSpeed(0.1);
@@ -175,8 +188,8 @@ test('对局：进桌后四家都有银币与段位，底注写进桌面', async
 
 test('结算：赢家实收 / 三家赔付 / 段位分，并写回账号', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_win_1', 'abcd1234', '胡牌测试', true);
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_win_1', 'abcd1234', '胡牌测试', true);
     window.__shipingMahjongSkipSeason();
     window.__shipingMahjongStartTable('novice');
     window.__shipingMahjongSetSpeed(0.1);
@@ -215,8 +228,8 @@ test('结算：赢家实收 / 三家赔付 / 段位分，并写回账号', async
 test('结算后回主界面，银币与段位分同步刷新；再进场次仍是新余额', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
   // 走完整新号流程（含 4,000 见面礼），这样余额能跨过中级场门槛，顺便验证解锁
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_cont_1', 'abcd1234', '续局测试');
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_cont_1', 'abcd1234', '续局测试');
     const ok = document.getElementById('reward-ok');
     if (ok) ok.click();
     window.__shipingMahjongSkipSeason();
@@ -249,8 +262,8 @@ test('结算后回主界面，银币与段位分同步刷新；再进场次仍�
 
 test('每日签到：7 格，领取后当天不可重复领，银币增加 1,000', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_sign_1', 'abcd1234', '签到测试', true);
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_sign_1', 'abcd1234', '签到测试', true);
     window.__shipingMahjongSkipSeason();
   });
   const before = (await shell(page)).account.coins;
@@ -268,8 +281,8 @@ test('每日签到：7 格，领取后当天不可重复领，银币增加 1,000
 
 test('回归好礼：7 格，按顺序领取并累加银币', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_back_1', 'abcd1234', '回归测试', true);
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_back_1', 'abcd1234', '回归测试', true);
     window.__shipingMahjongSkipSeason();
   });
   await page.evaluate(() => window.__shipingMahjongOpenBack());
@@ -287,8 +300,8 @@ test('回归好礼：7 格，按顺序领取并累加银币', async () => {
 
 test('手机竖屏：主界面单列不横向溢出，格子与游戏卡都在屏幕内', async () => {
   const page = await freshPage({ width: 390, height: 844 });
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_mob_1', 'abcd1234', '手机测试', true);
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_mob_1', 'abcd1234', '手机测试', true);
     window.__shipingMahjongSkipSeason();
   });
   await page.waitForTimeout(300);
@@ -317,8 +330,8 @@ test('手机竖屏：主界面单列不横向溢出，格子与游戏卡都在�
 
 test('手机竖屏：牌桌手牌 14 张完整可见，操作区不遮挡手牌', async () => {
   const page = await freshPage({ width: 390, height: 844 });
-  await page.evaluate(() => {
-    window.__shipingMahjongRegister('shell_mob_2', 'abcd1234', '手机牌桌', true);
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_mob_2', 'abcd1234', '手机牌桌', true);
     window.__shipingMahjongSkipSeason();
     window.__shipingMahjongStartTable('novice');
     window.__shipingMahjongSetSpeed(0.1);

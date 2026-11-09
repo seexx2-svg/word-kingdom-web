@@ -49,6 +49,12 @@
 | `docs/screenshots/shell-*.jpg` | 新增 | 15 张外壳截图（桌面 11 张 + 手机 4 张） |
 | `docs/screenshots/*.jpg` | 新增 | 桌面端 / 手机端牌桌截图 |
 | `README.md` | 追加 | 新增本分支的运行、测试与预览说明 |
+| `js/auth.js` | 新增（v0.5.0）/ 重写（v0.6.0） | 认证层双 Provider：`guest`（本机账号）与 `cloud`（云端验证码 / OAuth），门面 `useCloud` / `checkPhone` / `handleCallback` |
+| `tests/login.browser.test.cjs` | 新增 | 登录弹窗交互测试（v0.6.0 改为 11 条：手机号校验、发码时序、游客通道、云端不可用降级、手机端） |
+| `js/cloud.js` | 新增（v0.6.0） | 云服务接入层：SDK 初始化、列↔界面字段映射、档案读写、战绩写入、错误码翻中文 |
+| `tests/cloud.test.cjs` | 新增（v0.6.0） | 20 条假 client 用例：字段映射、`toRow` 不带 `owner_id`、`blocked` 判定、唯一键回落、发码只发一次 |
+| `tests/cloud-live.cjs` | 新增（v0.6.0） | `npm run test:cloud`：真打云端 8 项（SDK / RLS / 登录通道 / 授权入口） |
+| `docs/DEVELOPMENT-REPORT.md` | 追加 | 本文件 |
 
 ## 三、真正修复的问题
 
@@ -309,12 +315,79 @@ await Auth.signOut();  await Auth.current()
 
 | 命令 | 条数 | 覆盖 |
 | --- | --- | --- |
-| `npm test` | 88 | 规则 24 / 变体 5 / 账号经济 29 / **认证层 26** / 模拟 4 |
-| `npm run test:browser` | 39 | 对局 12 / **登录 14** / 外壳 13 |
-| 合计 | **127** | 全绿，无控制台报错 |
+| `npm test` | 108 | 规则 24 / 变体 5 / 账号经济 29 / 认证层 26 / **云端接入 20** / 模拟 4 |
+| `npm run test:browser` | 36 | 对局 12 / **登录 11** / 外壳 13 |
+| `npm run test:cloud` | 8 | 真打云端：SDK / RLS / 登录通道 / 授权入口 |
+| 合计 | **144 + 8** | 全绿，无页面脚本报错 |
 
 登录 26 条纯 Node 用例覆盖：中文/手机号建号、重名不覆盖原密码、密码错不建号、`autoCreate:false`、记住账号开关、历史去重与 8 条上限、清档不误删别人键、密码不落明文、换 provider。
-登录 14 条浏览器用例全部**真实点击输入框**，覆盖：空输入/短密码提示、中文账号一次进入、手机号一次进入、密码显隐、错密码不建号、记住账号回填、刷新后会话保持、账号浮层退出、切换账号、× 与 Esc 关闭、微信按钮提示、手机端不溢出。
+登录 11 条浏览器用例全部**真实点击输入框**，覆盖：手机号本地校验不发请求、没发码就点登录被拦、游客一次进入、游客二次进入不重发见面礼、账号浮层退出、改昵称、CDN 被拦（云端不可用）时仍能游客进桌、手机 390×844 可点中。
+云端接入 20 条假 client 用例覆盖：列→界面字段映射（含 `null` 不塌成 0）、`toRow` 永不带 `owner_id`、`update` 返回空数组判 `blocked`、`insert` 撞唯一键回落重读、错误码翻中文、发码只发一次。
+
+## 五之后（三）：接入真实云服务（v0.6.0）
+
+上一版的账号是"本机档案"——一个昵称加密码，存 `localStorage`。换浏览器就没了，这也是为什么"登录机制先做成"只能算半成品。这一版把账号、经济、战绩接到真实云端。
+
+### 5.14 为什么是这个形状
+
+| 决策点 | 选择 | 原因 |
+| --- | --- | --- |
+| SDK 引入方式 | CDN `<script>` + `WorkBuddyCloud.createWorkBuddyCloud` | 项目是纯静态页，没有任何构建步骤。为了接 SDK 去引 webpack，等于为一行 `import` 增加一整套工具链 |
+| 认证方式 | 手机号验证码为主，WorkBuddy / 微信授权为辅，游客兜底 | 麻将桌不该让人背密码。手机号是最低摩擦的方式，授权登录留给不想收短信的人 |
+| 游客模式 | 保留，且**云端不可用时自动可进** | 云端挂了不该连牌都打不了。但绝不静默降级——界面上明写"进度只存本机" |
+| 账号数据位置 | `mahjong_players` 一行一人，`owner_id` 唯一 | 一个账号一份档案，避免同一人多行导致余额分裂 |
+| 战绩 | `mahjong_rounds` 一局一行 | 排行榜、复盘、防作弊都要明细，不能只存总数 |
+
+新增 `js/cloud.js`（约 320 行）作为唯一的数据出入口，`js/auth.js` 重写成双 Provider（`guest` / `cloud`）。**没有一处业务代码直接 `fetch` 云端接口**，全部走 `Cloud.saveProfile` / `Cloud.loadOrCreateProfile` / `Cloud.recordRound` 三个函数。
+
+### 5.15 两张表和五条策略
+
+`mahjong_players`：`id`、`owner_id TEXT NOT NULL DEFAULT auth.uid() UNIQUE`、`owner_name`、`coins`、`gold`、`rank_points`、`season_id`、`season_activated`、`season_seen`、`prev_season jsonb`、`signin jsonb`、`back_gift jsonb`、`stats jsonb`、`welcome_granted`、`created_at`、`updated_at`。
+
+`mahjong_rounds`：`id`、`owner_id`、`owner_name`、`hall_id`、`base_bet`、`win_type`、`seat`、`delta`、`rank_delta`、`balance_after`、`seat_scores jsonb`、`created_at`，配 `mahjong_rounds_owner_time_idx`。
+
+RLS 是**双闸门**，缺一不可：
+
+- **GRANT**：只给 `authenticated` 角色授 `SELECT/INSERT/UPDATE`，`anon` 什么都不给。
+- **POLICY**：`players` 三条（read / insert / update own），`rounds` 两条（read / insert own），全部 `USING (owner_id = auth.uid())`，写入侧再加 `WITH CHECK (owner_id = auth.uid())`。
+
+`WITH CHECK` 是关键：没有它，登录用户可以把 `owner_id` 写成别人的 uid，往别人档案里塞数据。客户端 `toRow()` 因此**永远不输出 `owner_id`**，让数据库的 `DEFAULT auth.uid()` 自己填——这条有专门的单测钉死（`assert.equal('owner_id' in row, false)`）。
+
+### 5.16 这一轮新踩的坑
+
+1. **`Number(null) === 0` 把空余额变成 0 元**。云端新行的 `coins` 是 `NULL`，`Number(null)` 得 0，于是新号进桌余额显示 0 而不是默认 5000。`num()` 必须先判 `null / undefined / ''` 再转数字。
+2. **`.select()` 返回空数组不等于成功**。被 RLS 拦住时 PostgREST 不报错，只返回 `[]`。所以 `saveProfile` 里 `update(...).select()` 拿到空数组要判成 `code:'blocked'`，不能当写成功。
+3. **测试里 `page.evaluate` 忘了 await**。注册接口改成 `async` 之后，外壳测试里 `page.evaluate(() => { __shipingMahjongRegister(...) })` 会在注册完成前返回，牌桌拿着空账号启动，手牌区全空。三处调用全部改成 `await page.evaluate(async () => { await ... })`。
+4. **Playwright 的 glob 拦不住 CDN**。想模拟"云端不可用"，用 `**/workbuddy-cloud-sdk/**` 匹配不到 jsDelivr 的地址，得用 predicate：`page.route((u) => u.href.includes('workbuddy-cloud-sdk'), ...)`。
+5. **本地调试会刷一屏 401/400**。`127.0.0.1` 不在云端白名单里，每次打开都会有几条失败请求。这不是 bug，但会把"无控制台报错"的断言冲红——测试里把 `.cloud/` 相关噪声分流到单独的 `page.__cloudNoise`，正文断言只看真脚本错误。
+6. **CSS 老规则把新按钮顶到最上面**。`.login-primary{order:-1}` 是上一版留下的，新版主按钮复用了这个类，直接飞到弹窗顶部。补一条同权重更靠后的 `.login-body .login-primary{order:0}`。同类问题：`.am-rename{display:flex}` 与 `.hidden` 同权重，改名输入框默认就露出来了。
+7. **手快点开登录框，按钮再也点不动**。启动页的 HTML 是静态的，比 `await Cloud.init()` 先露出来；这时点「手机号登录」，弹窗按"云端未就绪"把主按钮禁用，而**之后没有任何地方重画**，于是一直禁用。浏览器测试把它抓出来了——不是用例不稳，是真 bug（第一次跑挂、第二次跑过了，正是因为 init 的时机在飘）。修法：`startSession` 在 init 落定后重画一次，`openLogin` 也挂一个 init 落定后的补画。
+
+### 5.17 验证到哪一步
+
+自动化能验的都验了，`npm run test:cloud` 真打云端 8 项：
+
+```
+✓ SDK 初始化
+✓ 未登录时拿不到会话
+✓ 匿名读被 RLS 限制为空
+✓ 匿名写被拒绝 —— DATABASE_42501
+✓ 手机号登录通道已开启 —— invalid_username_or_password
+✓ 验证码方法可用
+✓ WorkBuddy 授权可发起 —— www.workbuddy.cn
+✓ 微信授权可发起
+```
+
+`invalid_username_or_password` 是**好消息**：说明登录接口通着，只是这个手机号还没注册。`DATABASE_42501` 同理——权限链生效才会有这个码，如果 GRANT 漏了会变成表不存在或直接 500。
+
+**自动化验不了的两件事，我没有假装验过**：
+
+1. 真实短信下发（需要真手机号，且会真扣费）。
+2. 微信 / WorkBuddy 扫码授权（需要真人扫码）。
+
+这两条的验收步骤写在 `README.md` 的「四步人工验证清单」里，需要你拿手机走一遍。
+
+数据面是干净的：`mahjong_players` 0 行、`mahjong_rounds` 0 行，测试没有往真库里塞垃圾数据。
 
 ## 六、试玩方式
 
@@ -356,7 +429,10 @@ await Auth.signOut();  await Auth.current()
 
 ## 八、已知限制
 
-- **账号与积分存在本机 `localStorage`**，换浏览器或清缓存即丢失；真实货币充值、微信登录、联机大厅都还是占位，没有伪造数据。
+- **账号与经济已进云端，但线上那张分享链接还是旧版**。云端 `endpoint` 就是 `shiping-mahjong-ai.app.workbuddy.host`，域名要对得上才能登录，所以在重新发布之前，线上地址仍是 6 月的旧页面（没有登录页），只能本地跑。
+- **短信与扫码授权未做人工验收**，自动化只证明了通道存在，见 5.17。
+- **游客进度仍存本机**，这是刻意的：游客本来就是"先试试"，不该占云端一行数据。换成手机号登录后，档案会新建一份，游客那份不会迁移过来。
+- **排行榜/天梯是空壳**。`mahjong_rounds` 已经在存明细，但榜单聚合查询与前端展示还没做——现在只有本人的战绩。
 - **个旧 / 宝秀尚未开放**：规则细节（牌张、胡型、烂牌胡判定、吃牌限制、分表）需要确认后才填。现在点它们不会生效。
 - 天梯榜、比赛场、约牌等依赖服务端的功能一律只给提示，不编造排名或对手。
 - AI 仍沿用原有的启发式（保留对子与搭子，能吃碰杠胡就吃碰杠胡），本次没有改动策略强度。
