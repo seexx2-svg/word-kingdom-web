@@ -3,7 +3,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { startServer, launch, newPage, waitHumanTurn } = require('./browser-lib.cjs');
+const { startServer, launch, newPage, enterTable, waitHumanTurn } = require('./browser-lib.cjs');
 
 let srv, browser;
 test.before(async () => { srv = await startServer(); browser = await launch(); });
@@ -12,6 +12,7 @@ test.after(async () => { if (browser) await browser.close(); if (srv) await srv.
 async function openGame(viewport) {
   const page = await newPage(browser, srv.origin, viewport);
   await page.evaluate(() => window.__shipingMahjongSetSpeed(0.12));
+  await enterTable(page);
   await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 25000 });
   return page;
 }
@@ -57,6 +58,7 @@ test('页面加载：无脚本错误、无资源 404，核心与调试接口就�
 test('骰子：六面 1-6 点齐全，落桌后正面点数等于掷出的点数', async () => {
   const page = await newPage(browser, srv.origin, { width: 1280, height: 860 });
   await page.evaluate(() => window.__shipingMahjongSetSpeed(0.5));
+  await enterTable(page);
   await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 30000 });
   const info = await page.evaluate(() => {
     const cube = document.querySelector('#dice-one .die-cube3d');
@@ -129,7 +131,12 @@ test('吃牌展示：副露为顺子、被吃的牌有高亮标识、标签可�
   const forced = await page.evaluate(() => window.__shipingMahjongForceChi());
   assert.equal(forced.claimSeat, 2, '同名牌已被清理，接牌权应唯一属于下家西家');
   assert.deepEqual(forced.actions, ['chi'], '下家此时只应有「吃」这一种接牌方式');
-  await page.waitForTimeout(350);
+  // AI 决策 + 动画有延时，等副露真正落桌再断言，避免读太快读到空
+  await page.waitForFunction(() => {
+    const d = window.__shipingMahjongDebug();
+    return d.meldDetails.some((ms) => ms.some((m) => m.type === 'chi'));
+  }, null, { timeout: 5000 });
+  await page.waitForTimeout(120);
   const info = await page.evaluate(() => {
     const s = window.__shipingMahjongDebug();
     const groups = Array.from(document.querySelectorAll('#meld-0 .meld-group'));
@@ -168,38 +175,48 @@ test('吃牌展示：副露为顺子、被吃的牌有高亮标识、标签可�
   await page.close();
 });
 
-test('胡牌结算：桌内展示完整手牌与副露，不溢出视口', async () => {
+test('胡牌结算：桌内展示完整手牌与四家明细，不溢出视口', async () => {
   const page = await openGame({ width: 1440, height: 900 });
   await page.evaluate(() => window.__shipingMahjongForceWin());
-  await page.waitForTimeout(400);
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
+  await page.waitForTimeout(200);
   const info = await page.evaluate(() => {
-    const card = document.querySelector('#result-modal .result-card');
+    const sheet = document.querySelector('#result-modal .result-sheet');
     const modal = document.getElementById('result-modal');
-    const r = card.getBoundingClientRect();
+    const r = sheet.getBoundingClientRect();
     const vw = innerWidth, vh = innerHeight;
     return {
       visible: !modal.classList.contains('hidden'),
-      insideViewport: r.left >= 0 && r.top >= 0 && r.right <= vw && r.bottom <= vh,
-      inTable: !!card.closest('.table-frame'),
+      inTable: !!sheet.closest('.table-frame'),
+      insideViewport: r.left >= -1 && r.top >= -1 && r.right <= vw + 1 && r.bottom <= vh + 1,
       notFullScreen: r.width < vw * 0.95 && r.height < vh * 0.9,
-      hand: document.querySelectorAll('#result-winning .result-hand .tile-face').length,
-      winningMarks: document.querySelectorAll('#result-winning .tile-face.winning-tile').length,
-      melds: document.querySelectorAll('#result-winning .result-meld-group').length,
-      called: document.querySelectorAll('#result-winning .meld-called-tile').length,
-      scores: document.querySelectorAll('#result-scores .result-score').length,
-      balances: Array.from(document.querySelectorAll('#result-scores .result-score-balance')).map((e) => e.textContent)
+      title: document.getElementById('result-title').textContent.trim(),
+      hand: document.querySelectorAll('#result-hand .tile-face').length,
+      winningMarks: document.querySelectorAll('#result-hand .tile-face.winning-tile').length,
+      winners: document.querySelectorAll('#result-self .result-self').length,
+      others: document.querySelectorAll('#result-others .result-other').length,
+      rank: document.getElementById('result-rankbar').textContent.trim(),
+      buttons: ['result-continue', 'result-switch', 'result-share'].filter((id) => document.getElementById(id))
     };
   });
   assert.equal(info.visible, true, '结算层必须显示');
   assert.equal(info.inTable, true, '结算必须发生在牌桌内，而不是独立全屏弹窗');
-  assert.equal(info.insideViewport, true, '结算卡片不得溢出视口');
+  assert.equal(info.insideViewport, true, '结算面板不得溢出视口');
   assert.equal(info.notFullScreen, true, '结算不应占满整屏');
-  assert.ok(info.hand >= 2, '必须展示胡牌手牌');
+  assert.ok(info.hand >= 2, '必须展示胡牌手牌，实际 ' + info.hand + ' 张');
   assert.equal(info.winningMarks, 1, '必须标出胡的那张牌');
-  assert.ok(info.melds >= 1, '必须展示副露');
-  assert.ok(info.called >= 1, '副露中必须标出被叫的那张牌');
-  assert.equal(info.scores, 4, '四家积分都要显示');
-  assert.equal(info.balances.length, 4, '四家余额都要显示');
+  assert.equal(info.winners, 1, '赢家占一格');
+  assert.equal(info.others, 3, '其他三家各占一格');
+  assert.match(info.rank, /段位分/, '展示段位分变化');
+  assert.equal(info.buttons.length, 3, '继续 / 换桌 / 分享三个去向按钮都要在');
+  // 结算层里的按钮必须真的能点到（曾经因为整层 pointer-events:none 点不动）
+  const clickable = await page.evaluate(() => {
+    const b = document.getElementById('result-continue');
+    const r = b.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!(top && (top === b || b.contains(top)));
+  });
+  assert.equal(clickable, true, '结算按钮必须位于最上层，不能被牌桌盖住');
   await page.close();
 });
 

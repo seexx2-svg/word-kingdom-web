@@ -77,6 +77,25 @@ async function newPage(browser, origin, viewport) {
   return page;
 }
 
+/** 清空本地进度 → 注册一个新号 → 跳过赛季动画 → 直接进桌。
+ *  外壳（启动页/登录/赛季/主界面/场次）在这些几何与规则用例里只是前置步骤，
+ *  用调试接口走最短路径，避免每个用例都重复点一遍界面。 */
+async function enterTable(page, opts) {
+  const o = opts || {};
+  const info = await page.evaluate((o) => {
+    window.__shipingMahjongResetProgress();
+    const name = o.account || ('t' + Date.now().toString(36) + Math.floor(Math.random() * 1000));
+    const res = window.__shipingMahjongRegister(name, 'abcd', o.nick || name, true);
+    window.__shipingMahjongSkipSeason();
+    const table = window.__shipingMahjongStartTable(o.hall || 'novice');
+    return { registered: res && res.ok, screen: table && table.screen, hall: table && table.hall, baseBet: table && table.baseBet };
+  }, o);
+  if (!info.registered || info.screen !== 'table') {
+    throw new Error('进入牌桌失败：' + JSON.stringify(info));
+  }
+  return info;
+}
+
 /** 等待轮到真人出牌；遇到接牌提示自动「过」，遇到结算返回 'over' */
 async function waitHumanTurn(page, timeout = 45000) {
   const started = Date.now();
@@ -98,4 +117,4 @@ async function waitHumanTurn(page, timeout = 45000) {
   throw new Error('等待玩家操作超时：' + JSON.stringify(await page.evaluate(() => window.__shipingMahjongDebug())));
 }
 
-module.exports = { startServer, launch, newPage, waitHumanTurn, ROOT };
+module.exports = { startServer, launch, newPage, enterTable, waitHumanTurn, ROOT };

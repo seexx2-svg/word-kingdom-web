@@ -17,9 +17,9 @@
   const KEY_SOUND = 'shiping-mahjong-sound-v1';
   const KEY_BANK = 'shiping-mahjong-bankroll-v1';
   const KEY_ROUND = 'shiping-mahjong-round-v1';
-  const KEY_PROFILES = 'shiping-mahjong-profiles-v1';
-  const KEY_ACTIVE_PROFILE = 'shiping-mahjong-active-profile-v1';
   const KEY_VARIANT = 'shiping-mahjong-variant-v1';
+  const KEY_HALL = 'honghe-hall-v1';
+  const A = window.HongheAccount;
 
   const SPEED = { claim: 700, discard: 780, kong: 620 };
   const HEARTBEAT_MS = 900;
@@ -31,10 +31,12 @@
   let settings = loadSettings();
   let balances = loadBankroll();
   let roundNo = loadRoundNo();
-  let profiles = loadProfiles();
-  let activeProfileId = (() => { try { return localStorage.getItem(KEY_ACTIVE_PROFILE) || ''; } catch (_) { return ''; } })();
   let variantId = loadVariantId();
-  let lobbyOpen = false;
+  let account = null;          // 当前登录账号（js/account.js 的对象）
+  let hallId = (() => { try { return localStorage.getItem(KEY_HALL) || 'novice'; } catch (_) { return 'novice'; } })();
+  let settlement = null;       // 本局银币结算
+  let rankDelta = null;        // 本局段位分变化
+  let screenId = 'splash';
   let epoch = 0;
   let aiTask = null;
   let decision = null;          // 当前人类决策 {seat, kind, actions, signature}
@@ -73,59 +75,16 @@
   function loadRoundNo() { try { return Math.max(1, Number(localStorage.getItem(KEY_ROUND)) || 1); } catch (_) { return 1; } }
   function saveRoundNo() { try { localStorage.setItem(KEY_ROUND, String(roundNo)); } catch (_) { /* ignore */ } }
 
-  /* ---------------- 本地玩家档案 ----------------
-   * 存储层刻意收口在这几个函数里：以后接云端账号 / 联机大厅时，
-   * 只需把 loadProfiles / saveProfiles 换成远程实现，界面层不用改。
+  /* ---------------- 账号 / 场次 / 界面切换 ----------------
+   * 账号、赛季与银币规则都在 js/account.js；这里只负责把结果画到界面上。
+   * 接真实服务端时，把 A.currentAccount / A.login 换成请求即可，界面不用改。
    */
-  function blankProfile(name) {
-    return {
-      id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      name: name || '你',
-      createdAt: Date.now(),
-      lastPlayed: 0,
-      stats: { games: 0, wins: 0, selfDraw: 0, discardWin: 0, draw: 0, kong: 0 },
-      points: blankPoints()   // 按玩法累计：{ shiping: 0, gejiu: 0, baoxiu: 0 }
-    };
+  function store() { return A.makeStore(); }
+  function loadAccount() { account = A.currentAccount(store()); return account; }
+  function refreshAccount() { account = A.currentAccount(store()); return account; }
+  function rankInfo(points) {
+    return A.rankOf(points === undefined ? (account ? account.rankPoints : 0) : points);
   }
-  /** 每种玩法都先落一个 0，避免新档案出现 undefined 键 */
-  function blankPoints() {
-    const out = {};
-    for (const v of C.VARIANTS) out[v.id] = 0;
-    return out;
-  }
-  function normalizeProfile(p) {
-    const base = blankProfile(p && p.name);
-    if (!p || typeof p !== 'object') return base;
-    const stats = Object.assign({}, base.stats, p.stats || {});
-    const points = {};
-    for (const v of C.VARIANTS) points[v.id] = Number((p.points || {})[v.id]) || 0;
-    return {
-      id: typeof p.id === 'string' && p.id ? p.id : base.id,
-      name: String(p.name || base.name).slice(0, 12),
-      createdAt: Number(p.createdAt) || base.createdAt,
-      lastPlayed: Number(p.lastPlayed) || 0,
-      stats, points
-    };
-  }
-  function loadProfiles() {
-    let list = [];
-    try {
-      const raw = JSON.parse(localStorage.getItem(KEY_PROFILES) || '[]');
-      if (Array.isArray(raw)) list = raw.map(normalizeProfile);
-    } catch (_) { list = []; }
-    if (!list.length) list = [blankProfile('你')];
-    return list;
-  }
-  function saveProfiles() {
-    try { localStorage.setItem(KEY_PROFILES, JSON.stringify(profiles)); } catch (_) { /* ignore */ }
-  }
-  function activeProfile() {
-    let p = profiles.find((x) => x.id === activeProfileId);
-    if (!p) { p = profiles[0]; activeProfileId = p.id; saveActiveProfile(); }
-    return p;
-  }
-  function saveActiveProfile() { try { localStorage.setItem(KEY_ACTIVE_PROFILE, activeProfileId); } catch (_) { /* ignore */ } }
-  function profilePoints(p, vid) { return Number((p.points || {})[vid || variantId]) || 0; }
   function loadVariantId() {
     try {
       const id = localStorage.getItem(KEY_VARIANT);
@@ -134,6 +93,19 @@
     } catch (_) { return C.DEFAULT_VARIANT; }
   }
   function saveVariantId() { try { localStorage.setItem(KEY_VARIANT, variantId); } catch (_) { /* ignore */ } }
+  function saveHall() { try { localStorage.setItem(KEY_HALL, hallId); } catch (_) { /* ignore */ } }
+
+  const SCREENS = ['splash', 'season', 'inherit', 'home', 'hall', 'table'];
+  function showScreen(name) {
+    screenId = name;
+    SCREENS.forEach((s) => {
+      const el = $('screen-' + s);
+      if (el) el.classList.toggle('hidden', s !== name);
+    });
+  }
+  function hideAllLayers() {
+    document.querySelectorAll('.game-layer, .login-layer').forEach((el) => el.classList.add('hidden'));
+  }
 
   /* ---------------- 调试日志 ---------------- */
   function stamp() {
@@ -408,49 +380,49 @@
     handRects = Array.from(box.children).map(rectOf);
   }
   function loadSeatBalances() {
+    if (account) balances[0] = account.coins;
     for (let i = 0; i < 4; i++) {
-      const e = $('score-' + i);
-      if (e) e.textContent = '余额 ' + projectedBalance(i) + ' 分';
+      const coin = $('coin-' + i);
+      if (coin) coin.textContent = A.fmtNum(balances[i]);
       const side = $('side-score-' + i);
-      if (side) side.textContent = String(projectedBalance(i));
+      if (side) side.textContent = String(balances[i]);
     }
-    applyProfileToHeader();
+    refreshHeader();
   }
-  /** 顶栏：当前玩家、玩法、累计积分与余额 */
-  function applyProfileToHeader() {
-    const p = activeProfile();
-    const v = C.getVariant(state && state.variant ? state.variant : variantId);
+  /** 顶栏 + 自家座位牌：账号名、段位、场次、银币 */
+  function refreshHeader() {
+    if (!account) return;
+    const r = rankInfo();
+    const hall = A.hallOf(hallId);
     const title = $('brand-title');
-    if (title) title.textContent = p.name + ' 的牌桌';
+    if (title) title.textContent = account.nick;
     const sub = $('brand-sub');
-    if (sub) sub.textContent = v.name + ' · 本地档案';
+    if (sub) sub.textContent = r.name + ' · ' + hall.name;
     const mark = $('brand-mark');
-    if (mark) mark.textContent = (p.name || '你').slice(0, 1);
+    if (mark) mark.textContent = (account.nick || '牌').slice(0, 1);
     const top = $('bankroll-display');
-    if (top) {
-      top.innerHTML = '';
-      const pts = document.createElement('span');
-      pts.className = 'top-points';
-      pts.innerHTML = '积分 <b>' + profilePoints(p, v.id) + '</b>';
-      const dot = document.createElement('i');
-      dot.className = 'top-dot';
-      const bal = document.createElement('span');
-      bal.className = 'top-balance';
-      bal.textContent = '余额 ' + projectedBalance(0);
-      top.appendChild(pts);
-      top.appendChild(dot);
-      top.appendChild(bal);
+    if (top) top.textContent = '银币 ' + A.fmtNum(account.coins);
+    const name0 = $('seat-name-0');
+    if (name0) name0.textContent = account.nick;
+    const face0 = $('face-0');
+    if (face0) face0.textContent = (account.nick || '牌').slice(0, 1);
+    const rank0 = $('rank-0');
+    if (rank0) rank0.textContent = r.name;
+    const coin0 = $('coin-0');
+    if (coin0) coin0.textContent = A.fmtNum(balances[0]);
+    const bet = $('table-bet');
+    if (bet) bet.textContent = '底注:' + A.fmtNum(hall.baseBet);
+    const hudBet = $('hud-bet');
+    if (hudBet) hudBet.textContent = '底注:' + A.fmtNum(hall.baseBet);
+  }
+  const AI_RANKS = ['中将', '中士', '少尉'];
+  function paintSeatRanks() {
+    for (let i = 1; i < 4; i++) {
+      const el = $('rank-' + i);
+      if (el) el.textContent = AI_RANKS[i - 1];
     }
-    const score0 = $('score-0');
-    const seatName = $('seat-name-0');
-    if (seatName) seatName.textContent = p.name + ' · 南家';
-    const avatar0 = $('avatar-0');
-    if (avatar0) avatar0.textContent = (p.name || '你').slice(0, 1);
-    if (score0) score0.textContent = '余额 ' + projectedBalance(0) + ' 分';
   }
-  function projectedBalance(seat) {
-    return balances[seat] + (state && state.phase !== C.PHASES.OVER ? state.scores[seat] : 0);
-  }
+
   function markDealer(dealer) {
     for (let i = 0; i < 4; i++) {
       const seat = $('seat-' + i);
@@ -752,136 +724,163 @@
   /* ---------------- 结算 ---------------- */
   function settleRound() {
     if (!state || state.phase !== C.PHASES.OVER || settledState === state) return;
-    for (let i = 0; i < 4; i++) balances[i] += state.scores[i];
     settledState = state;
-    saveBankroll();
-    recordProfileResult();
-    loadSeatBalances();
-    logLine('action', `本局结算 scores=${state.scores.join('/')} balances=${balances.join('/')} 玩家积分=${profilePoints(activeProfile())}`);
-  }
-  /** 把本局结果写进当前玩家档案：累计积分 + 战绩。异常中止的局不计入。 */
-  function recordProfileResult() {
     const r = state.result || {};
-    if (r.type === 'abort') return;
-    const p = activeProfile();
-    const vid = state.variant || variantId;
-    p.points[vid] = (Number(p.points[vid]) || 0) + (state.scores[0] || 0);
-    p.stats.games += 1;
-    p.stats.kong += (state.kongLog ? state.kongLog.length : 0);
-    if (r.type === 'draw') p.stats.draw += 1;
-    else if (Number.isInteger(r.seat)) {
-      if (r.seat === 0) {
-        p.stats.wins += 1;
-        if (r.type === 'self') p.stats.selfDraw += 1;
-        if (r.type === 'discard') p.stats.discardWin += 1;
+    const hall = A.hallOf(hallId);
+    const winner = Number.isInteger(r.seat) ? r.seat : -1;
+    settlement = A.computeRound({
+      type: r.type === 'self' ? 'self' : (r.type === 'discard' ? 'discard' : 'draw'),
+      baseBet: hall.baseBet,
+      winnerSeat: winner,
+      discarderSeat: r.type === 'discard' ? r.from : -1,
+      dealerWin: winner >= 0 && winner === state.dealer,
+      balances: balances.slice()
+    });
+    for (let i = 0; i < 4; i++) balances[i] = Math.max(0, balances[i] + settlement.deltas[i]);
+    rankDelta = A.computeRankDelta(settlement);
+    if (account) {
+      account = A.applyRound(store(), account, settlement, {
+        rankDelta,
+        kongs: state.kongLog ? state.kongLog.length : 0
+      });
+      balances[0] = account.coins;
+    }
+    saveBankroll();
+    loadSeatBalances();
+    logLine('action', `本局结算 银币=${settlement.deltas.join('/')} 倍数=${settlement.multiplier} 段位分=${rankDelta.join('/')} 余额=${balances.join('/')}`);
+  }
+  function resultTitle(r) {
+    if (!r) return '本局结束';
+    if (r.type === 'draw') return '荒牌';
+    if (r.type === 'abort') return '本局中止';
+    return r.winningType || (r.type === 'self' ? '自摸' : '平胡');
+  }
+  function resultCard(seat, winner, r) {
+    const isSelf = seat === 0;
+    const isWinner = seat === winner;
+    const card = document.createElement('div');
+    card.className = isWinner ? 'result-self' : 'result-other';
+    card.dataset.seat = String(seat);
+
+    const name = isSelf && account ? account.nick : NAMES[seat] + ' · ' + SEATS[seat];
+    const rankName = isSelf ? rankInfo().name : AI_RANKS[seat - 1];
+    const head = document.createElement('div');
+    head.className = 'rs-head';
+    const face = document.createElement('span');
+    face.className = 'rs-face';
+    face.textContent = (name || '牌').slice(0, 1);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'rs-name';
+    nameEl.textContent = name;
+    const tag = document.createElement('span');
+    tag.className = 'rs-tag';
+    tag.textContent = rankName;
+    head.append(face, nameEl, tag);
+    if (isSelf) {
+      const me = document.createElement('span');
+      me.className = 'rs-tag';
+      me.textContent = '自己';
+      head.appendChild(me);
+    }
+    card.appendChild(head);
+
+    if (settlement && settlement.busted[seat]) {
+      const bust = document.createElement('span');
+      bust.className = 'rs-status';
+      bust.textContent = '破产';
+      card.appendChild(bust);
+    }
+
+    const lines = document.createElement('div');
+    lines.className = 'rs-lines';
+    const addLine = (label, value) => {
+      const row = document.createElement('div');
+      row.className = 'rs-line';
+      const l = document.createElement('span');
+      l.textContent = label;
+      const v = document.createElement('span');
+      v.textContent = value;
+      row.append(l, v);
+      lines.appendChild(row);
+    };
+    if (settlement && settlement.multiplier) {
+      if (isWinner) {
+        addLine(resultTitle(r), '1 倍');
+        if (winner === state.dealer) addLine('庄家', '2 倍');
+        addLine('合计', settlement.multiplier + ' 倍');
+      } else {
+        addLine(settlement.reasons[seat] || '输', settlement.multiplier + ' 倍');
       }
     }
-    p.lastPlayed = Date.now();
-    saveProfiles();
-    applyProfileToHeader();
+    card.appendChild(lines);
+
+    const total = document.createElement('div');
+    total.className = 'rs-total';
+    total.textContent = A.fmtSigned(settlement ? settlement.deltas[seat] : 0);
+    card.appendChild(total);
+    return card;
   }
-  function fmt(n) { return (n > 0 ? '+' : '') + n; }
 
   function showResult() {
     if (!state || !state.result) return;
     const r = state.result;
-    $('result-icon').textContent = r.type === 'draw' ? '荒' : r.type === 'abort' ? '停' : '胡';
-    $('result-title').textContent = r.title;
+    $('result-title').textContent = resultTitle(r);
     const winner = Number.isInteger(r.seat) ? r.seat : -1;
-    $('result-detail').textContent = r.detail;
-    const box = $('result-winning');
-    box.innerHTML = '';
-    const layer = $('result-modal');
-    layer.classList.toggle('is-draw', r.type !== 'over' && !Number.isInteger(r.seat));
+
+    const handRow = $('result-hand');
+    handRow.innerHTML = '';
+    const hand = r.winningHand || (winner >= 0 ? state.hands[winner] : []);
+    hand.forEach((id, i) => {
+      const isWin = winner >= 0 && i === hand.length - 1 && id === r.winningTile;
+      handRow.appendChild(tileEl(id, isWin ? 'winning-tile' : ''));
+    });
+    handRow.classList.toggle('hidden', !hand.length);
+
+    const selfBox = $('result-self');
+    selfBox.innerHTML = '';
+    const others = $('result-others');
+    others.innerHTML = '';
 
     if (winner >= 0) {
-      const head = document.createElement('div');
-      head.className = 'result-win-head';
-      const badge = document.createElement('span');
-      badge.className = 'result-win-badge';
-      badge.textContent = r.winType || '胡牌';
-      const strong = document.createElement('b');
-      strong.textContent = NAMES[winner] + ' · ' + (r.winType || '胡牌') + ' · ' + (r.winningType || '');
-      const t = document.createElement('span');
-      t.className = 'result-win-tile';
-      t.textContent = '胡 ' + (r.winningTile === null || r.winningTile === undefined ? '—' : C.tileLabel(r.winningTile));
-      head.append(badge, strong, t);
-      box.appendChild(head);
-
-      const melds = r.melds || state.melds[winner] || [];
-      if (melds.length) {
-        const wrap = document.createElement('div');
-        wrap.className = 'result-block';
-        const lab = document.createElement('div');
-        lab.className = 'result-label';
-        lab.textContent = '副露（' + melds.length + ' 组）';
-        const list = document.createElement('div');
-        list.className = 'result-meld-list';
-        melds.forEach((m) => {
-          const g = document.createElement('div');
-          g.className = 'result-meld-group meld-' + m.type;
-          const kind = document.createElement('span');
-          kind.className = 'meld-label';
-          kind.textContent = meldLabelText(m);
-          g.appendChild(kind);
-          m.tiles.forEach((id, i) => {
-            const called = Number.isInteger(m.calledTileIndex) && i === m.calledTileIndex && !m.concealed;
-            g.appendChild(tileEl(id, called ? 'meld-called-tile' : ''));
-          });
-          list.appendChild(g);
-        });
-        wrap.append(lab, list);
-        box.appendChild(wrap);
-      }
-
-      const handWrap = document.createElement('div');
-      handWrap.className = 'result-block';
-      const handLab = document.createElement('div');
-      handLab.className = 'result-label';
-      handLab.textContent = '胡牌手牌（' + (r.winningHand || []).length + ' 张）';
-      const hand = document.createElement('div');
-      hand.className = 'result-hand';
-      const winTile = r.winningTile;
-      (r.winningHand || []).forEach((id, i) => {
-        const isWin = i === r.winningHand.length - 1 && id === winTile;
-        const el = tileEl(id, isWin ? 'winning-tile' : '');
-        hand.appendChild(el);
-      });
-      handWrap.append(handLab, hand);
-      box.appendChild(handWrap);
+      selfBox.appendChild(resultCard(winner, winner, r));
+      [0, 1, 2, 3].filter((s) => s !== winner).forEach((s) => others.appendChild(resultCard(s, winner, r)));
     } else {
-      const head = document.createElement('div');
-      head.className = 'result-win-head';
-      const strong = document.createElement('b');
-      strong.textContent = r.type === 'abort' ? '本局已中止' : '本局荒牌';
-      head.appendChild(strong);
-      box.appendChild(head);
+      const msg = document.createElement('div');
+      msg.className = 'rs-total';
+      msg.textContent = r.type === 'abort' ? '本局已中止，不计入战绩' : '本局荒牌，银币不变';
+      selfBox.appendChild(msg);
+      for (let s = 0; s < 4; s++) others.appendChild(resultCard(s, -1, r));
     }
 
-    const rows = $('result-scores');
-    rows.innerHTML = '';
-    for (let i = 0; i < 4; i++) {
-      const row = document.createElement('div');
-      row.className = 'result-score' + (i === winner ? ' is-winner' : '');
-      const name = document.createElement('span');
-      name.className = 'result-score-name';
-      name.textContent = NAMES[i] + ' · ' + SEATS[i];
-      const delta = document.createElement('b');
-      delta.className = 'result-score-delta ' + (state.scores[i] > 0 ? 'plus' : state.scores[i] < 0 ? 'minus' : 'zero');
-      delta.textContent = fmt(state.scores[i]) + ' 分';
-      const bal = document.createElement('span');
-      bal.className = 'result-score-balance';
-      bal.textContent = '余额 ' + balances[i];
-      row.append(name, delta, bal);
-      rows.appendChild(row);
+    const bar = $('result-rankbar');
+    bar.innerHTML = '';
+    if (account) {
+      const info = rankInfo();
+      const delta = rankDelta ? rankDelta[0] : 0;
+      const label = document.createElement('b');
+      label.textContent = info.name;
+      const text = document.createElement('span');
+      text.textContent = info.text;
+      const mini = document.createElement('span');
+      mini.className = 'result-rank-mini';
+      const fill = document.createElement('i');
+      fill.style.width = Math.round(info.ratio * 100) + '%';
+      mini.appendChild(fill);
+      const d = document.createElement('span');
+      d.textContent = A.fmtSigned(delta) + ' 段位分';
+      d.style.color = delta >= 0 ? '#ffd76a' : '#8fd4ff';
+      bar.append(label, text, mini, d);
     }
-    layer.classList.remove('hidden');
+
+    $('result-modal').classList.remove('hidden');
     document.querySelector('.table-frame').classList.add('round-over');
   }
   function hideResult() {
     $('result-modal').classList.add('hidden');
-    document.querySelector('.table-frame').classList.remove('round-over');
+    const frame = document.querySelector('.table-frame');
+    if (frame) frame.classList.remove('round-over');
   }
+  function fmt(n) { return A.fmtSigned(n); }
 
   /* ---------------- 掷骰子 ---------------- */
   const DIE_FACES = [
@@ -981,144 +980,507 @@
   }
 
   /* ---------------- 本地大厅：玩家档案 + 玩法选择 ---------------- */
-  function profileLine(p) {
-    const s = p.stats || {};
-    const pts = profilePoints(p);
-    if (!s.games) return `新玩家 · ${C.getVariant(variantId).name} 积分 ${pts}`;
-    const rate = s.games ? Math.round((s.wins / s.games) * 100) : 0;
-    return `${s.games} 局 · 胡 ${s.wins}（${rate}%） · ${C.getVariant(variantId).name} 积分 ${pts}`;
+  /* ---------------- 登录 / 注册 ---------------- */
+  function openLogin(focusPassword) {
+    $('login-modal').classList.remove('hidden');
+    loginTip('');
+    const acc = $('login-account');
+    if (acc && !acc.value) {
+      try { acc.value = localStorage.getItem('honghe-last-account') || ''; } catch (_) { /* ignore */ }
+    }
+    const pw = $('login-password');
+    if (pw) pw.value = '';
+    renderHistory();
+    setTimeout(() => {
+      const el = focusPassword || (acc && acc.value) ? $('login-password') : acc;
+      if (el) el.focus();
+    }, 60);
   }
-  function renderLobby() {
-    const list = $('profile-list');
+  function renderHistory() {
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem('honghe-accounts-v1') || '[]').map((a) => a.account); } catch (_) { list = []; }
+    const box = $('login-history');
+    box.innerHTML = '';
+    list.slice(-6).reverse().forEach((a) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = a;
+      b.addEventListener('click', () => {
+        $('login-account').value = a;
+        box.classList.add('hidden');
+        $('login-password').focus();
+      });
+      box.appendChild(b);
+    });
+    box.classList.toggle('hidden', !list.length);
+  }
+  function loginTip(msg, ok) {
+    const t = $('login-tip');
+    if (!t) return;
+    t.textContent = msg || '';
+    t.className = 'login-tip' + (ok ? ' ok' : '');
+  }
+  function doLogin() {
+    const acc = $('login-account').value.trim();
+    const pw = $('login-password').value;
+    if (!acc) return loginTip('请输入账号');
+    if (!pw) return loginTip('请输入密码');
+    const res = A.login(store(), { account: acc, password: pw });
+    if (!res.ok) return loginTip(res.error);
+    A.setSession(store(), res.account.id);
+    try { localStorage.setItem('honghe-last-account', acc); } catch (_) { /* ignore */ }
+    account = res.account;
+    hideAllLayers();
+    playSound('ui');
+    afterLogin(false);
+  }
+  function doRegister() {
+    const acc = $('login-account').value.trim();
+    const pw = $('login-password').value;
+    if (!acc) return loginTip('请输入要注册的账号');
+    if (!pw) return loginTip('请设置密码');
+    const res = A.register(store(), { account: acc, password: pw, nick: acc });
+    if (!res.ok) return loginTip(res.error);
+    A.setSession(store(), res.account.id);
+    try { localStorage.setItem('honghe-last-account', acc); } catch (_) { /* ignore */ }
+    account = res.account;
+    hideAllLayers();
+    playSound('ui');
+    toast('注册成功，欢迎 ' + res.account.nick);
+    afterLogin(true);
+  }
+  /** 新号先发一份见面礼（截图里的「恭喜获得 银币 ×4000」），再进赛季流程 */
+  function afterLogin(isNew) {
+    refreshAccount();
+    if (isNew) {
+      account.coins += 4000;
+      account = A.update(store(), account);
+      showReward(4000, '银币');
+    }
+    maybeSeasonFlow();
+  }
+
+  /* ---------------- 赛季流程 ---------------- */
+  function seasonSeenKey() { return 'honghe-season-seen-' + A.SEASON.id; }
+  function maybeSeasonFlow() {
+    let seen = false;
+    try { seen = !!localStorage.getItem(seasonSeenKey()); } catch (_) { seen = false; }
+    if (seen) { enterHome(); return; }
+    showScreen('season');
+  }
+  function gotoInherit() {
+    const st = A.inheritState(account);
+    $('inherit-prev-badge').textContent = st.prevRank;
+    $('inherit-prev-pts').textContent = st.prevPoints;
+    $('inherit-now-badge').textContent = st.nowRank;
+    $('inherit-now-pts').textContent = st.nowPoints;
+    showScreen('inherit');
+  }
+  function finishSeason() {
+    try { localStorage.setItem(seasonSeenKey(), '1'); } catch (_) { /* ignore */ }
+    enterHome();
+    toast('S25 赛季开始，祝你旗开得胜');
+  }
+
+  /* ---------------- 主界面 ---------------- */
+  const HOME_GRID = [
+    { label: '存钱罐', ico: '罐', tone: 'red' },
+    { label: '破产回馈', ico: '馈', tone: 'red' },
+    { label: '回归好礼', ico: '礼', tone: 'purple', act: 'back' },
+    { label: '超值连买', ico: '买', tone: 'blue' },
+    { label: '幸运宝箱', ico: '箱', tone: 'orange' },
+    { label: '每日签到', ico: '签', tone: 'blue', act: 'signin' },
+    { label: '首充', ico: '充', tone: 'red' },
+    { label: '摇钱树', ico: '树', tone: 'green' },
+    { label: '定时登录', ico: '登', tone: 'pink', act: 'signin' },
+    { label: '金秋好礼', ico: '秋', tone: 'orange', act: 'back' },
+    { label: '周月卡', ico: '卡', tone: 'purple' },
+    { label: '折扣礼包', ico: '包', tone: 'pink' }
+  ];
+  const OTHER_GAMES = [
+    { name: '玩斗地主', bg: 'linear-gradient(150deg,#f0b352,#b9722a)' },
+    { name: '填大坑', bg: 'linear-gradient(150deg,#e88fa8,#a8416b)' },
+    { name: '掼蛋', bg: 'linear-gradient(150deg,#7fc4e8,#2f6fa8)' },
+    { name: '红中流成河', bg: 'linear-gradient(150deg,#c99ae8,#6a3fa8)' }
+  ];
+  function renderHomeGrid() {
+    const box = $('home-grid');
+    box.innerHTML = '';
+    HOME_GRID.forEach((g) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'grid-tile';
+      b.dataset.tone = g.tone;
+      if (g.act) b.dataset.act = g.act;
+      if (g.dot) {
+        const dot = document.createElement('i');
+        dot.className = 'gt-dot';
+        b.appendChild(dot);
+      }
+      const ico = document.createElement('span');
+      ico.className = 'gt-ico';
+      ico.textContent = g.ico;
+      const label = document.createElement('span');
+      label.textContent = g.label;
+      b.append(ico, label);
+      box.appendChild(b);
+    });
+  }
+  function renderLadder() {
+    const list = $('ladder-list');
     if (!list) return;
     list.innerHTML = '';
-    profiles.forEach((p) => {
+    const seeds = ['长', '双', '州', '梅'];
+    seeds.forEach((ch, i) => {
+      const row = document.createElement('div');
+      row.className = 'ladder-row';
+      const face = document.createElement('i');
+      face.textContent = ch;
+      const name = document.createElement('span');
+      name.textContent = i === 0 && account ? account.nick : ['小双州黯', '一路发', '梅子', '老李'][i];
+      row.append(face, name);
+      list.appendChild(row);
+    });
+  }
+  function renderOtherGames() {
+    const box = $('other-list');
+    if (!box) return;
+    box.innerHTML = '';
+    OTHER_GAMES.forEach((g) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'other-card';
+      b.style.background = g.bg;
+      const label = document.createElement('b');
+      label.textContent = g.name;
+      b.appendChild(label);
+      b.addEventListener('click', () => toast(g.name + ' 还没有上线'));
+      box.appendChild(b);
+    });
+  }
+  function renderHome() {
+    if (!account) return;
+    const info = rankInfo();
+    $('home-nick').textContent = account.nick;
+    $('home-rank').textContent = info.name;
+    $('home-coins').textContent = A.fmtNum(account.coins);
+    $('home-gold').textContent = A.fmtNum(account.gold);
+    $('home-avatar').textContent = (account.nick || '牌').slice(0, 1);
+    const hall = A.hallOf(hallId);
+    const q = $('quick-hall');
+    if (q) q.textContent = hall.name + ' · 个旧麻将';
+    const clock = $('act-clock');
+    if (clock) clock.textContent = '23:20';
+    renderLadder();
+    renderOtherGames();
+    if (!$('home-grid').children.length) renderHomeGrid();
+  }
+  function enterHome() {
+    if (!account) { showScreen('splash'); return; }
+    refreshAccount();
+    renderHome();
+    showScreen('home');
+  }
+
+  /* ---------------- 场次 ---------------- */
+  function openHall() {
+    if (!account) { openLogin(); return; }
+    refreshAccount();
+    const info = rankInfo();
+    $('hall-nick').textContent = account.nick;
+    $('hall-coins').textContent = A.fmtNum(account.coins);
+    $('hall-avatar').textContent = (account.nick || '牌').slice(0, 1);
+    $('hall-rank-name').textContent = info.name;
+    $('hall-emblem-text').textContent = info.name.slice(0, 2);
+    $('hall-rank-bar').style.width = Math.round(info.ratio * 100) + '%';
+    $('hall-rank-text').textContent = info.text;
+    const q = $('hall-quick-hall');
+    if (q) q.textContent = A.hallOf(hallId).name;
+    renderHallTables();
+    showScreen('hall');
+  }
+  function renderHallTables() {
+    const box = $('hall-tables');
+    box.innerHTML = '';
+    A.HALLS.forEach((h) => {
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = 'profile-card' + (p.id === activeProfileId ? ' is-active' : '');
-      card.dataset.profile = p.id;
-      const av = document.createElement('span');
-      av.className = 'profile-avatar';
-      av.textContent = (p.name || '你').slice(0, 1);
-      const box = document.createElement('span');
-      box.className = 'profile-text';
+      card.className = 'hall-card';
+      card.dataset.hall = h.id;
+
+      const packs = document.createElement('span');
+      packs.className = 'hall-packs';
+      packs.dataset.tier = h.tier;
+
+      const main = document.createElement('span');
+      main.className = 'hall-card-main';
+      const top = document.createElement('span');
+      top.className = 'hall-card-top';
       const nm = document.createElement('b');
-      nm.textContent = p.name;
-      const meta = document.createElement('small');
-      meta.textContent = profileLine(p);
-      box.appendChild(nm);
-      box.appendChild(meta);
-      card.appendChild(av);
-      card.appendChild(box);
-      if (profiles.length > 1) {
-        const del = document.createElement('span');
-        del.className = 'profile-del';
-        del.dataset.del = p.id;
-        del.title = '删除该档案';
-        del.textContent = '×';
-        card.appendChild(del);
+      nm.textContent = h.name;
+      const bet = document.createElement('i');
+      bet.textContent = A.fmtNum(h.baseBet) + '底分';
+      top.append(nm, bet);
+
+      const meta = document.createElement('span');
+      meta.className = 'hall-card-meta';
+      const range = document.createElement('span');
+      range.innerHTML = '<svg class="ico"><use href="#i-coin"/></svg>' + A.coinsRangeText(h);
+      const online = document.createElement('span');
+      online.textContent = '在线 ' + A.fmtNum(h.online) + ' 人';
+      meta.append(range, online);
+      main.append(top, meta);
+      card.append(packs, main);
+
+      if (account.coins < h.minCoins) {
+        const lock = document.createElement('span');
+        lock.className = 'hall-lock';
+        lock.textContent = '银币不足 ' + A.fmtNum(h.minCoins);
+        card.appendChild(lock);
       }
-      list.appendChild(card);
-    });
-
-    const vlist = $('variant-list');
-    if (vlist) {
-      vlist.innerHTML = '';
-      C.VARIANTS.forEach((v) => {
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = 'variant-card' + (v.id === variantId ? ' is-active' : '') + (v.available ? '' : ' is-locked');
-        card.dataset.variant = v.id;
-        card.disabled = !v.available;
-        const nm = document.createElement('b');
-        nm.textContent = v.name;
-        const rg = document.createElement('span');
-        rg.className = 'variant-region';
-        rg.textContent = v.region + (v.available ? '' : ' · 即将开放');
-        const sm = document.createElement('small');
-        sm.textContent = v.summary;
-        card.appendChild(nm);
-        card.appendChild(rg);
-        card.appendChild(sm);
-        vlist.appendChild(card);
+      card.addEventListener('click', () => {
+        if (account.coins < h.minCoins) {
+          toast('银币不足，' + h.name + ' 至少需要 ' + A.fmtNum(h.minCoins));
+          return;
+        }
+        startTable(h.id);
       });
-    }
-
-    const sum = $('lobby-summary');
-    if (sum) {
-      const p = activeProfile();
-      const s = p.stats || {};
-      sum.innerHTML = '';
-      const a = document.createElement('b');
-      a.textContent = p.name;
-      const b = document.createElement('span');
-      b.textContent = `${C.getVariant(variantId).name} · 累计 ${s.games || 0} 局 / 胡 ${s.wins || 0} 次 / 积分 ${profilePoints(p)}`;
-      sum.appendChild(a);
-      sum.appendChild(b);
-    }
+      box.appendChild(card);
+    });
   }
-  function openLobby() {
-    lobbyOpen = true;
-    renderLobby();
-    $('lobby').classList.remove('hidden');
+  function tableStacks(myCoins, hall) {
+    const base = Math.max(hall.baseBet * 4, 20000);
+    const rnd = () => base + Math.round(Math.random() * base);
+    return [myCoins, rnd(), rnd(), rnd()];
   }
-  function closeLobby() {
-    lobbyOpen = false;
-    $('lobby').classList.add('hidden');
-  }
-  function selectProfile(id) {
-    if (!profiles.some((p) => p.id === id)) return;
-    activeProfileId = id;
-    saveActiveProfile();
-    renderLobby();
-    applyProfileToHeader();
-    logLine('action', `切换玩家档案 → ${activeProfile().name}`);
-    playSound('ui');
-  }
-  function addProfile() {
-    const input = $('profile-input');
-    const name = (input.value || '').trim().slice(0, 12);
-    if (!name) { toast('请先输入名字'); input.focus(); return; }
-    if (profiles.some((p) => p.name === name)) { toast('已有同名档案'); return; }
-    const p = blankProfile(name);
-    profiles.push(p);
-    activeProfileId = p.id;
-    saveProfiles();
-    saveActiveProfile();
-    input.value = '';
-    renderLobby();
-    applyProfileToHeader();
-    toast('已添加玩家 ' + name);
-    playSound('ui');
-  }
-  function removeProfile(id) {
-    if (profiles.length <= 1) { toast('至少保留一个档案'); return; }
-    const p = profiles.find((x) => x.id === id);
-    if (!p) return;
-    profiles = profiles.filter((x) => x.id !== id);
-    if (activeProfileId === id) { activeProfileId = profiles[0].id; saveActiveProfile(); }
-    saveProfiles();
-    renderLobby();
-    applyProfileToHeader();
-    toast('已删除 ' + p.name);
-  }
-  function selectVariant(id) {
-    const v = C.getVariant(id);
-    if (!v || !v.available) { toast(v ? v.name + ' 规则整理中，暂未开放' : '未知玩法'); return; }
-    if (variantId === id) return;
-    variantId = id;
-    saveVariantId();
-    settings = Object.assign({}, v.defaults, settings);
-    renderLobby();
-    applyProfileToHeader();
-    toast('已切换到 ' + v.name + '，进入牌桌后生效');
-    playSound('ui');
-  }
-  function enterTable() {
-    closeLobby();
+  function startTable(id) {
+    if (!account) { openLogin(); return; }
+    if (id) hallId = id;
+    saveHall();
+    hideAllLayers();
+    hideResult();
+    balances = tableStacks(account.coins, A.hallOf(hallId));
+    saveBankroll();
+    settlement = null;
+    rankDelta = null;
+    showScreen('table');
+    paintSeatRanks();
+    loadSeatBalances();
     roundNo += 1;
     saveRoundNo();
     newGame();
+  }
+
+  /* ---------------- 签到 / 回归 / 奖励 ---------------- */
+  function openSignin() {
+    if (!account) return;
+    renderSignin();
+    $('signin-modal').classList.remove('hidden');
+  }
+  function renderSignin() {
+    const st = A.signinState(account, new Date());
+    const grid = $('signin-grid');
+    grid.innerHTML = '';
+    for (let d = 1; d <= st.days; d++) {
+      const cell = document.createElement('div');
+      cell.className = 'signin-cell';
+      if (st.claimed.includes(d)) cell.classList.add('claimed');
+      else if (d === st.nextDay) cell.classList.add('today');
+      else cell.classList.add('locked');
+      const day = document.createElement('span');
+      day.className = 'cell-day';
+      day.textContent = '第' + d + '天';
+      const coin = document.createElement('span');
+      coin.className = 'cell-coin';
+      coin.textContent = A.fmtNum(st.dayCoins);
+      cell.append(day, coin);
+      grid.appendChild(cell);
+    }
+    $('signin-cards').textContent = '0';
+    const streak = $('streak-claim');
+    if (streak) streak.classList.toggle('ready', st.canClaimStreak);
+    const doBtn = $('signin-do');
+    if (doBtn) {
+      doBtn.disabled = !st.canClaimToday;
+      doBtn.textContent = st.canClaimToday ? '签 到' : '今日已签到';
+    }
+  }
+  function doSignin() {
+    const res = A.claimSignin(store(), account, new Date());
+    if (!res.ok) { toast(res.error); return; }
+    refreshAccount();
+    renderSignin();
+    renderHome();
+    showReward(res.coins, '银币');
+    playSound('coin');
+  }
+  function claimStreak() {
+    const st = A.signinState(account, new Date());
+    if (!st.canClaimStreak) { toast('连续登录 3 天后可领取'); return; }
+    account.gold += st.streakReward;
+    account.signin.streakClaimed = (account.signin.streakClaimed || 0) + 1;
+    account = A.update(store(), account);
+    renderSignin();
+    renderHome();
+    showReward(st.streakReward, '金条');
+  }
+  function openBack() {
+    if (!account) return;
+    renderBack();
+    $('back-modal').classList.remove('hidden');
+  }
+  function renderBack() {
+    const st = A.backState(account);
+    const grid = $('back-grid');
+    grid.innerHTML = '';
+    for (let d = 1; d <= st.days; d++) {
+      const cell = document.createElement('div');
+      cell.className = 'back-cell';
+      const claimed = st.claimed.includes(d);
+      const canClaim = !claimed && d === st.nextDay;
+      if (claimed) cell.classList.add('locked');
+      if (canClaim) cell.classList.add('claimable');
+      const day = document.createElement('span');
+      day.className = 'cell-day';
+      day.textContent = '第' + ['一', '二', '三', '四', '五', '六', '七'][d - 1] + '天';
+      const coin = document.createElement('span');
+      coin.className = 'cell-coin';
+      coin.textContent = A.fmtNum(st.dayCoins);
+      cell.append(day, coin);
+      if (claimed) {
+        const mark = document.createElement('span');
+        mark.className = 'cell-btn';
+        mark.textContent = '已领取';
+        cell.appendChild(mark);
+      } else if (canClaim) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cell-btn';
+        btn.textContent = '领取';
+        btn.addEventListener('click', () => {
+          const res = A.claimBack(store(), account, d);
+          if (!res.ok) { toast(res.error); return; }
+          refreshAccount();
+          renderBack();
+          renderHome();
+          showReward(res.coins, '银币');
+        });
+        cell.appendChild(btn);
+      }
+      grid.appendChild(cell);
+    }
+    const left = $('back-left');
+    if (left) left.textContent = '03 天 00:39';
+  }
+  function showReward(amount, name) {
+    $('reward-amount').textContent = '×' + A.fmtNum(amount);
+    $('reward-name').textContent = name;
+    $('reward-modal').classList.remove('hidden');
+  }
+
+  /* ---------------- 结算后的去向 ---------------- */
+  function resultContinue() {
+    hideResult();
+    enterHome();
+  }
+  function resultSwitch() {
+    hideResult();
+    enterHome();
+    openHall();
+  }
+  function resultShare() {
+    toast('分享链接已复制：' + location.href.split('?')[0]);
+  }
+
+  /* ---------------- 外壳事件 ---------------- */
+  function on(id, type, fn) {
+    const el = $(id);
+    if (el) el.addEventListener(type, fn);
+  }
+  function bindShell() {
+    on('btn-wechat', 'click', () => {
+      toast('微信登录需要接入开放平台，当前用账号登录');
+      openLogin();
+    });
+    on('btn-phone', 'click', () => openLogin());
+    on('splash-cs', 'click', () => toast('客服：honghe@example.com'));
+    on('login-cs', 'click', () => toast('客服：honghe@example.com'));
+    on('login-close', 'click', () => $('login-modal').classList.add('hidden'));
+    on('do-login', 'click', doLogin);
+    on('do-register', 'click', doRegister);
+    on('login-clear', 'click', () => { $('login-account').value = ''; $('login-account').focus(); });
+    on('login-caret', 'click', () => $('login-history').classList.toggle('hidden'));
+    on('forgot-pw', 'click', () => loginTip('本机账号请重新注册，密码不提供找回', false));
+    on('login-password', 'keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+    on('login-account', 'keydown', (e) => { if (e.key === 'Enter') $('login-password').focus(); });
+
+    on('screen-season', 'click', gotoInherit);
+    on('screen-inherit', 'click', finishSeason);
+
+    on('quick-start', 'click', openHall);
+    on('hall-quick', 'click', () => {
+      const hall = A.hallOf(hallId);
+      if (account && account.coins < hall.minCoins) { toast('银币不足，至少需要 ' + A.fmtNum(hall.minCoins)); return; }
+      startTable(hall.id);
+    });
+    on('hall-back', 'click', enterHome);
+    on('hall-help', 'click', () => toast('底分越高，输赢越大；段位分只与胜负有关'));
+    on('home-ladder', 'click', () => toast('天梯榜需要联机数据'));
+    on('ladder-more', 'click', () => toast('天梯榜需要联机数据'));
+    on('game-gejiu', 'click', openHall);
+    on('game-shuangkou', 'click', () => toast('双扣还没上线'));
+    on('game-poker', 'click', () => toast('扑克合集还没上线'));
+    on('game-mahjong', 'click', openHall);
+    on('game-match', 'click', () => toast('比赛场需要联机'));
+    on('game-invite', 'click', () => toast('约牌需要联机'));
+
+    document.querySelectorAll('.home-nav').forEach((nav) => {
+      nav.addEventListener('click', (e) => {
+        const btn = e.target.closest('.nav-item');
+        if (!btn) return;
+        const act = btn.dataset.nav;
+        if (act === 'signin') return openSignin();
+        if (act === 'deals') return openBack();
+        if (act === 'rank') return toast('当前段位：' + rankInfo().name + ' ' + rankInfo().text);
+        const names = { shop: '商城', bag: '背包', mail: '邮件', task: '任务', dress: '装扮', more: '更多' };
+        toast((names[act] || '该功能') + '还在开发中');
+      });
+    });
+    on('home-grid', 'click', (e) => {
+      const tile = e.target.closest('.grid-tile');
+      if (!tile) return;
+      if (tile.dataset.act === 'signin') return openSignin();
+      if (tile.dataset.act === 'back') return openBack();
+      toast('活动还没上线');
+    });
+    document.querySelectorAll('.hall-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.hall-tab').forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        if (tab.dataset.tab === 'gold') toast('金条场还没开放，先用标准场');
+      });
+    });
+    document.querySelectorAll('.rank-act').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.act === 'reward') return toast('赛季奖励在第 3 天登录后可领');
+        toast('天梯榜需要联机数据');
+      });
+    });
+
+    on('signin-do', 'click', doSignin);
+    on('streak-claim', 'click', claimStreak);
+    on('reward-ok', 'click', () => $('reward-modal').classList.add('hidden'));
+
+    on('result-continue', 'click', resultContinue);
+    on('result-switch', 'click', resultSwitch);
+    on('result-share', 'click', resultShare);
+    on('result-close', 'click', () => { hideResult(); enterHome(); });
+
+    const brand = $('brand');
+    if (brand) {
+      brand.addEventListener('click', () => { audioReady = true; playSound('ui'); enterHome(); });
+      brand.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); enterHome(); } });
+    }
   }
 
   /* ---------------- 开局 ---------------- */
@@ -1184,11 +1546,11 @@
     toastTimer = setTimeout(() => e.classList.remove('show'), 2100);
   }
   function resetBankroll() {
-    balances = [100, 100, 100, 100];
+    if (!account) return;
+    balances = tableStacks(account.coins, A.hallOf(hallId));
     saveBankroll();
     loadSeatBalances();
-    showResult();
-    toast('四家积分已重置为 100');
+    toast('桌上银币已按当前余额重置');
   }
 
   /* ---------------- 事件绑定 ---------------- */
@@ -1218,36 +1580,6 @@
     const logClear = $('log-clear');
     if (logClear) logClear.addEventListener('click', () => { LOGS.length = 0; const l = $('log-list'); if (l) l.innerHTML = ''; });
 
-    /* 大厅 */
-    const brand = $('brand');
-    if (brand) {
-      brand.addEventListener('click', () => { audioReady = true; playSound('ui'); openLobby(); });
-      brand.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLobby(); } });
-    }
-    const lobbyClose = $('lobby-close');
-    if (lobbyClose) lobbyClose.addEventListener('click', closeLobby);
-    const lobbyEnter = $('lobby-enter');
-    if (lobbyEnter) lobbyEnter.addEventListener('click', enterTable);
-    const lobbyEl = $('lobby');
-    if (lobbyEl) {
-      lobbyEl.addEventListener('click', (e) => {
-        if (e.target === lobbyEl) closeLobby();
-        const del = e.target.closest && e.target.closest('[data-del]');
-        if (del) { e.stopPropagation(); removeProfile(del.dataset.del); return; }
-        const card = e.target.closest && e.target.closest('[data-profile]');
-        if (card) { selectProfile(card.dataset.profile); return; }
-        const vcard = e.target.closest && e.target.closest('[data-variant]');
-        if (vcard) selectVariant(vcard.dataset.variant);
-      });
-    }
-    const profileAdd = $('profile-add');
-    if (profileAdd) profileAdd.addEventListener('click', addProfile);
-    const profileInput = $('profile-input');
-    if (profileInput) {
-      profileInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); addProfile(); }
-      });
-    }
   }
 
   /* ---------------- 调试 / 测试接口 ---------------- */
@@ -1269,7 +1601,11 @@
       aiTask: aiTask ? { seat: aiTask.seat, kind: aiTask.kind, epoch: aiTask.epoch } : null,
       epoch, result: state.result, settings, roundNo, lastDice,
       variant: state.variant, variantName: state.variantName,
-      profile: { id: activeProfile().id, name: activeProfile().name, points: profilePoints(activeProfile()), stats: Object.assign({}, activeProfile().stats) },
+      profile: account ? { id: account.id, name: account.nick, coins: account.coins, gold: account.gold, rankPoints: account.rankPoints, rank: rankInfo().name, stats: Object.assign({}, account.stats) } : null,
+      account: account ? { id: account.id, nick: account.nick, coins: account.coins, gold: account.gold, rankPoints: account.rankPoints, rank: rankInfo().name, season: A.SEASON.id, hall: hallId } : null,
+      screen: screenId,
+      settlement: settlement ? { deltas: settlement.deltas.slice(), multiplier: settlement.multiplier, unit: settlement.unit, busted: settlement.busted.slice(), reasons: settlement.reasons.slice() } : null,
+      rankDelta: rankDelta ? rankDelta.slice() : null,
       logs: LOGS.slice(-40)
     };
   }
@@ -1319,17 +1655,75 @@
     window.__shipingMahjongLogs = () => LOGS.slice();
     window.__shipingMahjongAutoPlay = autoPlayGames;
     window.__shipingMahjongSetSpeed = (v) => { speedScale = Number(v); return speedScale; };
-    /* 大厅与档案调试接口 */
-    window.__shipingMahjongLobby = () => ({
-      open: lobbyOpen,
+    /* 外壳调试接口：账号 / 赛季 / 场次。全部绕过 DOM 输入框，供自动化测试驱动 */
+    window.__shipingMahjongShell = () => ({
+      screen: screenId,
+      account: account ? {
+        id: account.id, nick: account.nick, coins: account.coins, gold: account.gold,
+        rankPoints: account.rankPoints, rank: rankInfo().name, rankText: rankInfo().text,
+        activated: !!account.activated, stats: Object.assign({}, account.stats)
+      } : null,
+      hall: A.hallOf(hallId).id,
+      hallName: A.hallOf(hallId).name,
+      baseBet: A.hallOf(hallId).baseBet,
       variantId,
-      activeProfileId,
-      profiles: profiles.map((p) => ({ id: p.id, name: p.name, points: Object.assign({}, p.points), stats: Object.assign({}, p.stats) })),
-      variants: C.availableVariants()
+      variants: C.availableVariants(),
+      season: A.SEASON.id,
+      settlement: settlement ? { type: settlement.type, unit: settlement.unit, multiplier: settlement.multiplier, deltas: settlement.deltas.slice(), busted: settlement.busted.slice() } : null,
+      rankDelta: rankDelta ? rankDelta.slice() : null,
+      layers: ['login-modal', 'signin-modal', 'back-modal', 'reward-modal', 'rules-modal', 'result-modal']
+        .filter((id) => { const el = $(id); return el && !el.classList.contains('hidden'); })
     });
-    window.__shipingMahjongOpenLobby = () => { openLobby(); return true; };
-    window.__shipingMahjongAddProfile = (name) => { const i = $('profile-input'); if (i) i.value = name; addProfile(); return activeProfile().name; };
-    window.__shipingMahjongSelectVariant = (id) => { selectVariant(id); return variantId; };
+    function debugAuth(kind, accName, password, nick, skipReward) {
+      const acc = String(accName || '').trim();
+      const pw = String(password || '');
+      const res = kind === 'register'
+        ? A.register(store(), { account: acc, password: pw, nick: nick || acc })
+        : A.login(store(), { account: acc, password: pw });
+      if (!res.ok) return res;
+      A.setSession(store(), res.account.id);
+      try { localStorage.setItem('honghe-last-account', acc); } catch (_) { /* ignore */ }
+      account = res.account;
+      hideAllLayers();
+      if (skipReward) { refreshAccount(); maybeSeasonFlow(); }
+      else afterLogin(kind === 'register');
+      return { ok: true, id: account.id, nick: account.nick, coins: account.coins, screen: screenId, isNew: kind === 'register' };
+    }
+    window.__shipingMahjongRegister = (accName, password, nick, skipReward) => debugAuth('register', accName, password, nick, skipReward);
+    window.__shipingMahjongLogin = (accName, password, skipReward) => debugAuth('login', accName, password, '', skipReward);
+    window.__shipingMahjongLogout = () => {
+      A.setSession(store(), '');
+      account = null;
+      hideAllLayers();
+      hideResult();
+      showScreen('splash');
+      return true;
+    };
+    window.__shipingMahjongEnterHome = () => { if (!account) return false; enterHome(); return screenId; };
+    window.__shipingMahjongSkipSeason = () => {
+      if (!account) return false;
+      try { localStorage.setItem(seasonSeenKey(), '1'); } catch (_) { /* ignore */ }
+      enterHome();
+      return screenId;
+    };
+    window.__shipingMahjongOpenHall = () => { if (!account) return false; openHall(); return screenId; };
+    window.__shipingMahjongStartTable = (id) => {
+      if (!account) return false;
+      startTable(id || hallId);
+      return { screen: screenId, hall: hallId, baseBet: A.hallOf(hallId).baseBet, phase: state ? state.phase : null };
+    };
+    window.__shipingMahjongOpenSignin = () => { if (!account) return false; openSignin(); return true; };
+    window.__shipingMahjongOpenBack = () => { if (!account) return false; openBack(); return true; };
+    window.__shipingMahjongResetProgress = () => {
+      try {
+        ['honghe-accounts-v1', 'honghe-session-v1', 'honghe-last-account'].forEach((k) => localStorage.removeItem(k));
+        Object.keys(localStorage).filter((k) => k.indexOf('honghe-season-seen-') === 0).forEach((k) => localStorage.removeItem(k));
+      } catch (_) { /* ignore */ }
+      account = null;
+      hideAllLayers();
+      showScreen('splash');
+      return true;
+    };
     /** 模拟「AI 定时任务丢失」：清掉任务但不推进状态，用于验证心跳自愈 */
     window.__shipingMahjongDropAiTask = () => {
       if (!state || state.phase === C.PHASES.OVER) return false;
@@ -1427,15 +1821,18 @@
   function boot() {
     syncSoundButton();
     bind();
-    if (!profiles.some((p) => p.id === activeProfileId)) {
-      activeProfileId = profiles[0].id;
-      saveActiveProfile();
-    }
+    bindShell();
+    loadAccount();
     loadSeatBalances();
     installDebugApi();
     heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
-    newGame();
+    if (account) {
+      maybeSeasonFlow();
+    } else {
+      showScreen('splash');
+    }
   }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 

@@ -3,67 +3,300 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#063c28">
-<meta name="description" content="石屏麻将，四人牌桌单机练习版。">
-<title>石屏麻将 · 四人牌桌</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23063c28'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23f5e3bd' font-family='serif'%3E%E7%9F%B3%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0d2b1f">
+<meta name="description" content="博雅 · 红河棋牌 —— 石屏麻将 AI 版，登录、赛季段位、银币结算与四人对局。">
+<title>博雅 · 红河棋牌</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d2b1f'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23ffd77a' font-family='serif'%3E%E7%BA%A2%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 <script defer src="js/core.js"></script>
+<script defer src="js/account.js"></script>
 <script defer src="js/ui.js"></script>
 </head>
 <body>
-<div class="lobby hidden" id="lobby" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
-  <div class="lobby-panel">
-    <button class="lobby-close" id="lobby-close" type="button" aria-label="返回牌桌">×</button>
-    <div class="lobby-head">
-      <span class="eyebrow">LOCAL LOBBY · 本地大厅</span>
-      <h1 id="lobby-title">选择玩家与玩法</h1>
-      <p class="lobby-sub">档案和积分保存在这台设备上。以后接入联机大厅时，这里会换成云端账号。</p>
+
+<!-- ============================ 图标雪碧 ============================ -->
+<svg class="svg-sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#dfe6ef"/><circle cx="12" cy="12" r="9" fill="none" stroke="#a9b6c6" stroke-width="1.4"/><circle cx="12" cy="12" r="5.6" fill="#c7d2df"/><path d="M9.4 12.6c.7 1.4 3.9 1.4 4.6-.2.6-1.5-1.2-2-2.6-2.3-1.2-.3-2.3-.9-1.8-2 .6-1.3 3.2-1.3 4 0" fill="none" stroke="#7f8d9e" stroke-width="1.3" stroke-linecap="round"/></symbol>
+  <symbol id="i-gold" viewBox="0 0 24 24"><rect x="2.5" y="7" width="19" height="10" rx="2.4" fill="#f6c945"/><rect x="2.5" y="7" width="19" height="4" rx="2" fill="#ffe083"/><rect x="2.5" y="7" width="19" height="10" rx="2.4" fill="none" stroke="#b8862a" stroke-width="1.1"/><circle cx="12" cy="12" r="2.6" fill="#fff1b8" stroke="#b8862a" stroke-width="1"/></symbol>
+  <symbol id="i-shop" viewBox="0 0 24 24"><path d="M4 9h16l-1.4 10.2a2 2 0 0 1-2 1.8H7.4a2 2 0 0 1-2-1.8L4 9Z" fill="#f0b352"/><path d="M8.5 9a3.5 3.5 0 0 1 7 0" fill="none" stroke="#f0b352" stroke-width="2"/><path d="M9 13.5h6" stroke="#8a5a16" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-rank" viewBox="0 0 24 24"><path d="m12 3 2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.2l5.9-.8Z" fill="#ffd75e" stroke="#b8862a" stroke-width="1.1" stroke-linejoin="round"/></symbol>
+  <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3.5" y="9" width="17" height="11" rx="1.8" fill="#e8574a"/><rect x="2.5" y="6.4" width="19" height="4" rx="1.4" fill="#ff7a6a"/><path d="M12 6.4v13.6" stroke="#ffd77a" stroke-width="2"/><path d="M12 6.2c-1.6-3.6-6-3.2-6-1 0 2 3.6 2.2 6 1Zm0 0c1.6-3.6 6-3.2 6-1 0 2-3.6 2.2-6 1Z" fill="#ffd77a"/></symbol>
+  <symbol id="i-bag" viewBox="0 0 24 24"><path d="M6 8h12l1.4 12.2a1.6 1.6 0 0 1-1.6 1.8H6.2a1.6 1.6 0 0 1-1.6-1.8L6 8Z" fill="#c98a4b"/><path d="M9 8V6.2a3 3 0 0 1 6 0V8" fill="none" stroke="#8a5a24" stroke-width="1.8"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2.8" y="5.5" width="18.4" height="13" rx="2" fill="#f2f2ef"/><path d="m3.6 7 8.4 6 8.4-6" fill="none" stroke="#b9b4a4" stroke-width="1.5"/><rect x="2.8" y="5.5" width="18.4" height="13" rx="2" fill="none" stroke="#cfcabb" stroke-width="1.1"/></symbol>
+  <symbol id="i-task" viewBox="0 0 24 24"><rect x="4.5" y="3.5" width="15" height="17" rx="2" fill="#fff3d0"/><path d="M8 8.5h8M8 12h8M8 15.5h5" stroke="#c99a3c" stroke-width="1.6" stroke-linecap="round"/><path d="m15 17.5 1.6 1.6 3-3.2" stroke="#5bbd6a" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-dress" viewBox="0 0 24 24"><path d="M9 3h6l1.2 3.4L20 8v11H4V8l3.8-1.6L9 3Z" fill="#b6a4e8"/><path d="M9 3h6l-.8 4h-4.4L9 3Z" fill="#8f79d6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2" fill="#e2d6b8"/><circle cx="12" cy="12" r="2" fill="#e2d6b8"/><circle cx="18" cy="12" r="2" fill="#e2d6b8"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3.6 8.2 12 4l8.4 4.2v7.6L12 20l-8.4-4.2Z" fill="#e9b45a" stroke="#a9741f" stroke-width="1.1"/><path d="M3.6 8.2 12 12.4l8.4-4.2M12 12.4V20" stroke="#a9741f" stroke-width="1.1" fill="none"/></symbol>
+  <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 2.5c3.5 4 6.5 6.2 6.5 10.4A6.5 6.5 0 0 1 5.5 13c0-2 1-3.6 2.4-5.2.4 1.6 1.2 2.4 2.2 2.6-.3-2.8.3-5.4 1.9-7.9Z" fill="#ff8a3d"/><path d="M12 12c1.6 2 2.6 2.9 2.6 4.4a2.6 2.6 0 1 1-5.2 0c0-1.3.8-2.4 2.6-4.4Z" fill="#ffd75e"/></symbol>
+  <symbol id="i-tree" viewBox="0 0 24 24"><rect x="10.6" y="13" width="2.8" height="8" fill="#8a5a24"/><circle cx="12" cy="9" r="6.5" fill="#5fbe5a"/><circle cx="8.4" cy="11" r="4" fill="#77cf6b"/><circle cx="15.6" cy="11" r="4" fill="#4ba848"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.2" fill="#f7f5ef" stroke="#cfcabb" stroke-width="1.1"/><path d="M12 8.2c1.4-2 4.2-1 4.2 1.3 0 2.2-2.6 3.6-4.2 5-1.6-1.4-4.2-2.8-4.2-5 0-2.3 2.8-3.3 4.2-1.3Z" fill="#e8574a"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v4.5a5 5 0 0 1-10 0V4Z" fill="#f6c945"/><path d="M7 5.5H4.6a3.4 3.4 0 0 0 3.4 3.4M17 5.5h2.4a3.4 3.4 0 0 1-3.4 3.4" fill="none" stroke="#b8862a" stroke-width="1.3"/><rect x="10.6" y="13" width="2.8" height="4" fill="#b8862a"/><rect x="7.6" y="17" width="8.8" height="2.6" rx="1" fill="#b8862a"/></symbol>
+  <symbol id="i-tea" viewBox="0 0 24 24"><path d="M4 9h13v4.6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z" fill="#efe6d2"/><path d="M17 10.5h2.2a2.4 2.4 0 0 1 0 4.8H17" fill="none" stroke="#cfc3a6" stroke-width="1.6"/><path d="M7 5.5c1.4-1.2 0-2.2 1-3.4" stroke="#cfc3a6" stroke-width="1.4" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-ladder" viewBox="0 0 24 24"><path d="M6 3v18M18 3v18M6 8h12M6 13h12M6 18h12" stroke="#f0d79a" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<!-- ============================ 1. 启动 / 登录页 ============================ -->
+<section class="screen splash" id="screen-splash">
+  <div class="splash-sky" aria-hidden="true">
+    <div class="sky-sun"></div>
+    <div class="sky-ridge ridge-far"></div>
+    <div class="sky-ridge ridge-mid"></div>
+    <div class="sky-ridge ridge-near"></div>
+    <div class="terrace t1"></div>
+    <div class="terrace t2"></div>
+    <div class="terrace t3"></div>
+    <div class="terrace t4"></div>
+    <div class="splash-vignette"></div>
+  </div>
+
+  <div class="splash-logo">博雅<span>·</span>红河棋牌</div>
+
+  <div class="splash-foot">
+    <button class="splash-btn btn-wechat" id="btn-wechat" type="button">
+      <svg viewBox="0 0 24 24" class="wx-ico" aria-hidden="true"><ellipse cx="9.3" cy="9.2" rx="6.6" ry="5.4" fill="#fff"/><ellipse cx="16.2" cy="14.6" rx="5.6" ry="4.6" fill="#fff" opacity=".92"/><circle cx="7.2" cy="8.2" r=".85" fill="#2eb872"/><circle cx="11.4" cy="8.2" r=".85" fill="#2eb872"/><circle cx="14.6" cy="13.6" r=".72" fill="#2eb872"/><circle cx="18" cy="13.6" r=".72" fill="#2eb872"/></svg>
+      微信登录
+    </button>
+    <button class="splash-btn btn-phone" id="btn-phone" type="button">
+      <svg viewBox="0 0 24 24" class="ph-ico" aria-hidden="true"><rect x="6.4" y="2.4" width="11.2" height="19.2" rx="2.2" fill="#fff"/><rect x="8.2" y="4.4" width="7.6" height="13" rx="1" fill="#1a8fe3" opacity=".25"/><circle cx="12" cy="19.4" r="1.05" fill="#1a8fe3"/></svg>
+      手机号登录
+    </button>
+    <p class="splash-note">注：任何登录方式都需要进行实名认证</p>
+  </div>
+
+  <div class="splash-side">
+    <span class="age-badge"><b>16+</b><i>适龄提示</i></span>
+    <button class="cs-chip" id="splash-cs" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#7fd6f5" stroke-width="1.8"/><circle cx="12" cy="10" r="2.6" fill="#7fd6f5"/><path d="M6.4 19c.8-2.6 3-4 5.6-4s4.8 1.4 5.6 4" fill="none" stroke="#7fd6f5" stroke-width="1.8" stroke-linecap="round"/></svg>
+      联系客服
+    </button>
+  </div>
+</section>
+
+<!-- ============================ 2. 登录 / 注册弹窗 ============================ -->
+<div class="login-layer hidden" id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="login-card">
+    <div class="login-banner"><h1 id="login-title">登录游戏</h1></div>
+    <button class="login-close" id="login-close" type="button" aria-label="关闭">×</button>
+
+    <div class="login-body">
+      <label class="login-row">
+        <span class="login-label">账号：</span>
+        <span class="login-input">
+          <input id="login-account" type="text" inputmode="text" autocomplete="username" maxlength="20" placeholder="请输入账号">
+          <button class="input-clear" id="login-clear" type="button" aria-label="清除">×</button>
+          <button class="input-caret" id="login-caret" type="button" aria-label="历史账号">▾</button>
+        </span>
+      </label>
+      <div class="login-history hidden" id="login-history"></div>
+
+      <label class="login-row">
+        <span class="login-label">密码：</span>
+        <span class="login-input">
+          <input id="login-password" type="password" autocomplete="current-password" maxlength="20" placeholder="请输入密码">
+        </span>
+        <button class="login-forgot" id="forgot-pw" type="button">忘记密码</button>
+      </label>
+
+      <p class="login-tip" id="login-tip"></p>
+
+      <div class="login-btns">
+        <button class="btn-brown" id="do-register" type="button">注 册</button>
+        <button class="btn-green-solid" id="do-login" type="button">登 录</button>
+      </div>
     </div>
-    <div class="lobby-body">
-      <section class="lobby-col">
-        <h2>玩家档案</h2>
-        <div class="profile-list" id="profile-list" role="list"></div>
-        <div class="profile-new">
-          <input id="profile-input" type="text" maxlength="12" placeholder="新玩家名字" aria-label="新玩家名字" autocomplete="off">
-          <button class="ghost-button" id="profile-add" type="button">添加</button>
-        </div>
-        <p class="lobby-hint">积分按玩法分别累计，换玩法不会互相影响。</p>
-      </section>
-      <section class="lobby-col">
-        <h2>玩法</h2>
-        <div class="variant-list" id="variant-list"></div>
-        <p class="lobby-hint" id="variant-hint">个旧、宝秀的规则差异确认后即可开放，不必重做牌桌。</p>
-      </section>
-    </div>
-    <div class="lobby-foot">
-      <div class="lobby-summary" id="lobby-summary"></div>
-      <button class="primary-button lobby-enter" id="lobby-enter" type="button">进入牌桌</button>
-    </div>
+
+    <div class="login-foot"><button class="login-cs" id="login-cs" type="button">联系客服</button></div>
   </div>
 </div>
 
+<!-- ============================ 3. 赛季开启 ============================ -->
+<section class="screen season-screen hidden" id="screen-season">
+  <div class="season-bg" aria-hidden="true"></div>
+  <div class="season-inner">
+    <h1 class="season-num">S25</h1>
+    <h2 class="season-name">全新赛季开启</h2>
+    <p class="season-range">2026.11.06~2027.01.05</p>
+  </div>
+  <p class="season-tap">点击屏幕继续 <i>≫</i></p>
+</section>
+
+<!-- ============================ 4. 赛季继承 ============================ -->
+<section class="screen season-screen hidden" id="screen-inherit">
+  <div class="season-bg gold" aria-hidden="true"></div>
+  <div class="inherit-inner">
+    <h2 class="inherit-title">S25 赛季继承</h2>
+    <div class="inherit-row">
+      <div class="rank-orb blue">
+        <span class="orb-cap">S20 赛季段位称号</span>
+        <span class="orb-badge" id="inherit-prev-badge">长工</span>
+        <span class="orb-pts">段位积分：<b id="inherit-prev-pts">112</b></span>
+      </div>
+      <div class="inherit-arrow" aria-hidden="true"></div>
+      <div class="rank-orb gold">
+        <span class="orb-cap">S25 赛季段位称号</span>
+        <span class="orb-badge" id="inherit-now-badge">未激活</span>
+        <span class="orb-pts">段位积分：<b id="inherit-now-pts">0</b></span>
+      </div>
+    </div>
+  </div>
+  <p class="season-tap">点击屏幕继续 <i>≫</i></p>
+</section>
+
+<!-- ============================ 5. 主界面 ============================ -->
+<section class="screen home hidden" id="screen-home">
+  <header class="home-top">
+    <div class="player-chip">
+      <div class="player-avatar" id="home-avatar">黯</div>
+      <div class="player-meta">
+        <div class="player-line">
+          <b class="player-name" id="home-nick">小双州黯</b>
+          <span class="rank-badge" id="home-rank">新秀一阶</span>
+        </div>
+        <div class="wallet">
+          <span class="wallet-item"><svg class="ico"><use href="#i-coin"/></svg><b id="home-coins">5,000</b><button class="wallet-plus" data-wallet="coins" type="button" aria-label="充值银币">+</button></span>
+          <span class="wallet-item"><svg class="ico"><use href="#i-gold"/></svg><b id="home-gold">91</b><button class="wallet-plus" data-wallet="gold" type="button" aria-label="充值金条">+</button></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="home-logo">博雅<span>·</span>红河棋牌</div>
+
+    <div class="home-acts">
+      <button class="act-btn" id="act-knife" type="button"><i class="act-dot"></i><span>砍一刀</span></button>
+      <button class="act-btn" id="act-give" type="button"><i class="act-dot"></i><span>银币派送</span></button>
+      <button class="act-btn" id="act-treasure" type="button"><i class="act-dot"></i><span>夺宝</span></button>
+      <span class="act-clock" id="act-clock">23:20</span>
+    </div>
+  </header>
+
+  <div class="home-body">
+    <aside class="ladder" id="home-ladder">
+      <h3><svg class="ico"><use href="#i-ladder"/></svg>天梯榜</h3>
+      <div class="ladder-list" id="ladder-list"></div>
+      <button class="ladder-more" id="ladder-more" type="button">查看更多</button>
+    </aside>
+
+    <div class="home-grid" id="home-grid"></div>
+
+    <div class="home-games">
+      <button class="game-card game-main" id="game-gejiu" type="button">
+        <span class="game-art art-gejiu" aria-hidden="true"></span>
+        <span class="game-foot"><b>个旧麻将</b><i>在线:9,913</i></span>
+      </button>
+      <button class="game-card game-side" id="game-shuangkou" type="button">
+        <span class="game-art art-shuangkou" aria-hidden="true"></span>
+        <span class="game-foot"><b>双扣</b><i>最新游戏</i></span>
+      </button>
+      <div class="game-row">
+        <button class="game-card game-wide" id="game-poker" type="button"><span class="game-art art-poker" aria-hidden="true"></span><span class="game-foot"><b>扑克合集</b></span></button>
+        <button class="game-card game-wide" id="game-mahjong" type="button"><span class="game-art art-mahjong" aria-hidden="true"></span><span class="game-foot"><b>麻将合集</b></span></button>
+        <button class="game-card game-tile" id="game-match" type="button"><span class="tile-ico"><svg class="ico"><use href="#i-trophy"/></svg></span><span class="game-foot"><b>比赛</b></span></button>
+        <button class="game-card game-tile" id="game-invite" type="button"><span class="tile-ico"><svg class="ico"><use href="#i-tea"/></svg></span><span class="game-foot"><b>约牌</b></span></button>
+      </div>
+    </div>
+
+    <aside class="other-games">
+      <h3>其他游戏下载</h3>
+      <div class="other-list" id="other-list"></div>
+    </aside>
+  </div>
+
+  <nav class="home-nav">
+    <button class="nav-item" data-nav="shop"><svg class="ico"><use href="#i-shop"/></svg><span>商城</span></button>
+    <button class="nav-item" data-nav="rank"><svg class="ico"><use href="#i-rank"/></svg><span>等级</span></button>
+    <button class="nav-item" data-nav="deals"><svg class="ico"><use href="#i-gift"/></svg><span>特惠</span></button>
+    <button class="nav-item" data-nav="signin"><svg class="ico"><use href="#i-coin"/></svg><span>领银币</span></button>
+    <button class="nav-item" data-nav="bag"><svg class="ico"><use href="#i-bag"/></svg><span>背包</span></button>
+    <button class="nav-item" data-nav="mail"><svg class="ico"><use href="#i-mail"/></svg><span>邮件</span></button>
+    <button class="nav-item" data-nav="task"><svg class="ico"><use href="#i-task"/></svg><span>任务</span></button>
+    <button class="nav-item" data-nav="dress"><svg class="ico"><use href="#i-dress"/></svg><span>装扮</span></button>
+    <button class="nav-item" data-nav="more"><svg class="ico"><use href="#i-more"/></svg><span>更多</span></button>
+  </nav>
+
+  <button class="quick-start" id="quick-start" type="button">
+    <b>快速开始</b>
+    <small id="quick-hall">初级场 · 个旧麻将</small>
+  </button>
+</section>
+
+<!-- ============================ 6. 场次选择 ============================ -->
+<section class="screen hall-screen hidden" id="screen-hall">
+  <div class="hall-bg" aria-hidden="true"></div>
+
+  <header class="hall-top">
+    <button class="hall-back" id="hall-back" type="button" aria-label="返回主界面">‹</button>
+    <div class="hall-player">
+      <div class="player-avatar small" id="hall-avatar">黯</div>
+      <div>
+        <b id="hall-nick">小双州黯</b>
+        <span class="hall-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="hall-coins">5,000</b></span>
+      </div>
+    </div>
+    <div class="hall-title" id="hall-title">个旧麻将</div>
+    <button class="hall-help" id="hall-help" type="button" aria-label="玩法说明">?</button>
+  </header>
+
+  <nav class="hall-tabs">
+    <button class="hall-tab active" data-tab="standard" type="button">标准场</button>
+    <button class="hall-tab" data-tab="gold" type="button">金条场</button>
+  </nav>
+
+  <div class="hall-rank">
+    <div class="hall-season"><b>S25 赛季</b><small>2026.11.06~2027.01.05</small></div>
+    <div class="hall-emblem" aria-hidden="true"><span id="hall-emblem-text">新秀</span></div>
+    <div class="hall-rankname" id="hall-rank-name">新秀一阶</div>
+    <div class="hall-rankbar"><i id="hall-rank-bar" style="width:0%"></i></div>
+    <div class="hall-rankpts" id="hall-rank-text">0/420</div>
+    <div class="hall-rank-actions">
+      <button class="rank-act" data-act="ladder" type="button"><svg class="ico"><use href="#i-ladder"/></svg><span>天梯榜</span></button>
+      <button class="rank-act" data-act="reward" type="button"><svg class="ico"><use href="#i-gift"/></svg><span>奖励</span></button>
+    </div>
+  </div>
+
+  <div class="hall-tables" id="hall-tables"></div>
+
+  <nav class="home-nav hall-nav">
+    <button class="nav-item" data-nav="shop"><svg class="ico"><use href="#i-shop"/></svg><span>商城</span></button>
+    <button class="nav-item" data-nav="rank"><svg class="ico"><use href="#i-rank"/></svg><span>等级</span></button>
+    <button class="nav-item" data-nav="deals"><svg class="ico"><use href="#i-gift"/></svg><span>特惠</span></button>
+    <button class="nav-item" data-nav="signin"><svg class="ico"><use href="#i-coin"/></svg><span>领银币</span></button>
+    <button class="nav-item" data-nav="bag"><svg class="ico"><use href="#i-bag"/></svg><span>背包</span></button>
+    <button class="nav-item" data-nav="mail"><svg class="ico"><use href="#i-mail"/></svg><span>邮件</span></button>
+    <button class="nav-item" data-nav="task"><svg class="ico"><use href="#i-task"/></svg><span>任务</span></button>
+    <button class="nav-item" data-nav="dress"><svg class="ico"><use href="#i-dress"/></svg><span>装扮</span></button>
+    <button class="nav-item" data-nav="more"><svg class="ico"><use href="#i-more"/></svg><span>更多</span></button>
+  </nav>
+
+  <button class="quick-start" id="hall-quick" type="button">
+    <b>快速开始</b>
+    <small id="hall-quick-hall">初级场</small>
+  </button>
+</section>
+
+<!-- ============================ 7. 对局 ============================ -->
+<section class="screen table-screen hidden" id="screen-table">
 <div class="app-shell">
   <header class="topbar">
-    <div class="brand" id="brand" role="button" tabindex="0" title="返回大厅：切换玩家与玩法"><div class="brand-mark" id="brand-mark">石</div><div><b id="brand-title">石屏麻将</b><small id="brand-sub">四人牌桌 · 本地档案</small></div></div>
+    <div class="brand" id="brand" role="button" tabindex="0" title="返回主界面"><div class="brand-mark" id="brand-mark">黯</div><div><b id="brand-title">小双州黯</b><small id="brand-sub">新秀一阶 · 初级场</small></div></div>
     <div class="top-actions">
-      <div class="top-stat"><span class="lamp"></span><span id="wall-count">牌墙 83</span></div>
-      <div class="top-stat bankroll-stat" id="bankroll-display">你的余额 100</div>
+      <div class="top-stat remain-stat"><span class="lamp"></span><span id="wall-count">剩牌:83张</span></div>
+      <div class="top-stat bankroll-stat" id="bankroll-display">银币 5,000</div>
       <button class="log-toggle" id="log-toggle" type="button" aria-expanded="false" aria-controls="log-panel">日志</button>
       <button class="sound-toggle" id="sound-toggle" type="button" aria-pressed="true">声音 开</button>
       <button class="icon-button" id="rules-open" title="规则设置" aria-label="规则设置">☰</button>
       <button class="new-game-button" id="new-game">新开一局</button>
     </div>
   </header>
+
   <main class="game-stage">
     <section class="table-frame">
       <div class="felt">
         <div class="felt-sheen"></div>
-        <div class="table-logo"><strong>石屏麻将</strong><small>SHIPING MAHJONG</small></div>
+        <div class="table-tablemark"><strong>个旧麻将</strong><small id="table-bet">底注:2000</small></div>
 
         <div class="dice-overlay hidden" id="dice-overlay" aria-live="polite">
           <div class="dice-card">
-            <span class="dice-eyebrow">SHIPING TABLE · DICE DRAW</span>
+            <span class="dice-eyebrow">红河牌桌 · 掷骰定庄</span>
             <h2>掷骰定庄 · 决定开牌位置</h2>
             <div class="dice-pair">
               <div class="dice-cube" id="dice-one" aria-label="第一颗骰子"></div>
@@ -75,19 +308,55 @@
         </div>
 
         <section class="seat seat-north" id="seat-1">
-          <div class="seat-top"><div class="avatar avatar-north">李</div><div class="seat-meta"><b>北家 · 老李</b><span class="seat-score" id="score-1">0</span></div><span class="seat-turn" id="turn-1"></span></div>
+          <div class="pcard">
+            <div class="pcard-rank"><i class="rank-chip" id="rank-1">中将</i></div>
+            <div class="pcard-body">
+              <div class="pcard-face avatar-north" id="face-1">李</div>
+              <div class="pcard-text">
+                <b class="pcard-name">北家 · 老李</b>
+                <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-1">0</b></span>
+                <span class="seat-score" id="score-1">0</span>
+              </div>
+            </div>
+            <span class="dealer-badge">庄</span>
+            <span class="seat-turn" id="turn-1"></span>
+          </div>
           <div class="opponent-hand" id="back-1"></div>
           <div class="meld-row meld-row-north" id="meld-1"></div>
         </section>
 
         <section class="seat seat-west" id="seat-3">
-          <div class="seat-top"><div class="avatar avatar-east">赵</div><div class="seat-meta"><b>东家 · 小赵</b><span class="seat-score" id="score-3">0</span></div><span class="seat-turn" id="turn-3"></span></div>
+          <div class="pcard">
+            <div class="pcard-body">
+              <div class="pcard-face avatar-east" id="face-3">赵</div>
+              <div class="pcard-text">
+                <b class="pcard-name">东家 · 小赵</b>
+                <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-3">0</b></span>
+                <span class="seat-score" id="score-3">0</span>
+              </div>
+            </div>
+            <div class="pcard-rank"><i class="rank-chip" id="rank-3">中士</i></div>
+            <span class="dealer-badge">庄</span>
+            <span class="seat-turn" id="turn-3"></span>
+          </div>
           <div class="opponent-hand vertical-back" id="back-3"></div>
           <div class="meld-row vertical-meld" id="meld-3"></div>
         </section>
 
         <section class="seat seat-east" id="seat-2">
-          <div class="seat-top"><div class="avatar avatar-west">梅</div><div class="seat-meta"><b>西家 · 阿梅</b><span class="seat-score" id="score-2">0</span></div><span class="seat-turn" id="turn-2"></span></div>
+          <div class="pcard">
+            <div class="pcard-rank"><i class="rank-chip" id="rank-2">少尉</i></div>
+            <div class="pcard-body">
+              <div class="pcard-face avatar-west" id="face-2">梅</div>
+              <div class="pcard-text">
+                <b class="pcard-name">西家 · 阿梅</b>
+                <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-2">0</b></span>
+                <span class="seat-score" id="score-2">0</span>
+              </div>
+            </div>
+            <span class="dealer-badge">庄</span>
+            <span class="seat-turn" id="turn-2"></span>
+          </div>
           <div class="opponent-hand vertical-back" id="back-2"></div>
           <div class="meld-row vertical-meld" id="meld-2"></div>
         </section>
@@ -98,8 +367,8 @@
           <div class="wall-strip wall-west" aria-hidden="true"></div>
           <div class="wall-strip wall-east" aria-hidden="true"></div>
           <div class="center-hud">
-            <div class="hud-wind"><span>东</span><span>南</span><span>西</span><span>北</span></div>
             <div class="hud-clock"><b id="turn-clock">–</b><small>秒</small></div>
+            <div class="hud-bet" id="hud-bet">底注:2000</div>
             <div class="discard-callout hidden" id="discard-callout" aria-live="polite"></div>
             <div class="hud-caption"><span id="round-label">第 1 局</span><i></i><span id="turn-label">轮到你出牌</span></div>
             <div class="center-footer"><span class="dealer-chip" id="dealer-chip">庄</span><span id="dealer-label">南家坐庄</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
@@ -112,8 +381,18 @@
           </div>
         </div>
 
+        <div class="claim-orbs hidden" id="claim-orbs" aria-live="polite"></div>
+
         <section class="seat seat-south" id="seat-0">
-          <div class="seat-top"><div class="avatar avatar-you" id="avatar-0">你</div><div class="seat-meta"><b id="seat-name-0">你 · 南家</b><span class="seat-score" id="score-0">0</span></div><span class="seat-turn" id="turn-0"></span></div>
+          <div class="pcard pcard-self">
+            <div class="pcard-face avatar-you" id="face-0">黯</div>
+            <b class="pcard-name" id="seat-name-0">小双州黯</b>
+            <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-0">5,000</b></span>
+            <span class="seat-score" id="score-0">0</span>
+            <span class="dealer-badge">庄</span>
+            <span class="seat-turn" id="turn-0"></span>
+            <i class="rank-chip self" id="rank-0">新秀一阶</i>
+          </div>
         </section>
 
         <div class="hand-panel">
@@ -123,21 +402,28 @@
           <div class="action-bar" id="action-bar"><div class="action-placeholder">轮到你时，操作会显示在这里</div></div>
         </div>
 
-        <div class="table-result-layer hidden" id="result-modal" role="dialog" aria-modal="false" aria-labelledby="result-title">
-          <div class="result-card">
-            <div class="result-head">
-              <div class="result-icon" id="result-icon">胡</div>
-              <div class="result-head-text">
-                <span class="eyebrow">ROUND RESULT</span>
-                <h2 id="result-title">本局结束</h2>
-                <p id="result-detail">四家积分已经结算。</p>
-              </div>
+        <div class="table-result-layer hidden" id="result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
+          <div class="result-sheet">
+            <div class="result-sheet-title" id="result-title">平胡</div>
+            <button class="result-sheet-close" id="result-close" type="button" aria-label="关闭">×</button>
+            <div class="result-hand-row" id="result-hand"></div>
+            <div class="result-players">
+              <div class="result-winner" id="result-self"></div>
+              <div class="result-rest" id="result-others"></div>
             </div>
-            <div class="result-winning" id="result-winning"></div>
-            <div class="result-scores" id="result-scores"></div>
+            <div class="result-rankbar" id="result-rankbar"></div>
             <div class="result-actions">
-              <button class="secondary-button reset-bankroll-button" id="reset-bankroll" type="button">重置四家积分到 100</button>
-              <button class="primary-button result-new" id="result-new" type="button">再来一局</button>
+              <button class="btn-cyan" id="result-switch" type="button">换 桌</button>
+              <button class="btn-green-solid" id="result-share" type="button">分享好友</button>
+              <button class="btn-orange" id="result-continue" type="button">继 续</button>
+            </div>
+            <div class="hidden-runtime" aria-hidden="true">
+              <span id="result-icon">胡</span>
+              <span id="result-detail"></span>
+              <span id="result-winning"></span>
+              <span id="result-scores"></span>
+              <button id="result-new" type="button"></button>
+              <button id="reset-bankroll" type="button"></button>
             </div>
           </div>
         </div>
@@ -150,12 +436,68 @@
     </section>
   </main>
 </div>
+</section>
 
-<aside class="log-panel hidden" id="log-panel" aria-label="调试日志">
-  <div class="log-head"><b>调试日志</b><span>回合 / 状态 / AI 任务</span><button id="log-clear" type="button">清空</button></div>
-  <ol class="log-list" id="log-list"></ol>
-</aside>
+<!-- ============================ 弹窗：7 天签到 ============================ -->
+<div class="game-layer hidden" id="signin-modal" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+  <div class="panel purple">
+    <div class="panel-ribbon">
+      <span class="ribbon-side left" aria-hidden="true"></span>
+      <h2 id="signin-title">7天签到奖励</h2>
+      <span class="ribbon-side right" aria-hidden="true"></span>
+    </div>
+    <button class="panel-close" data-close="signin-modal" type="button" aria-label="关闭">×</button>
+    <div class="panel-body">
+      <div class="signin-grid" id="signin-grid"></div>
+      <div class="signin-side">
+        <div class="streak-box">
+          <p>连续<b>3</b>天<br>登录奖励</p>
+          <span class="streak-gold"><svg class="ico"><use href="#i-gold"/></svg><b>30</b></span>
+          <button class="streak-btn" id="streak-claim" type="button">领取</button>
+        </div>
+        <div class="signin-dots"><i class="on"></i><i></i></div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn-orange wide" id="signin-do" type="button">签 到</button>
+      <span class="panel-note">我的补签卡：<b id="signin-cards">0</b> 张</span>
+    </div>
+    <label class="panel-check"><input type="checkbox" id="signin-double"><i></i>观看视频，双倍领取</label>
+  </div>
+</div>
 
+<!-- ============================ 弹窗：回归好礼 ============================ -->
+<div class="game-layer hidden" id="back-modal" role="dialog" aria-modal="true" aria-labelledby="back-title">
+  <div class="panel wide-panel">
+    <div class="panel-ribbon small"><h2 id="back-title">回归好礼</h2></div>
+    <button class="panel-close" data-close="back-modal" type="button" aria-label="关闭">×</button>
+    <div class="back-body">
+      <nav class="back-tabs">
+        <button class="back-tab active" type="button">累计登录</button>
+        <button class="back-tab" type="button">玩牌有奖</button>
+        <button class="back-tab" type="button">福利礼包</button>
+        <button class="back-tab" type="button">回归特权</button>
+      </nav>
+      <div class="back-grid" id="back-grid"></div>
+    </div>
+    <div class="panel-foot"><span class="panel-note">剩余时间：<b id="back-left">03 天 00:39</b></span></div>
+  </div>
+</div>
+
+<!-- ============================ 弹窗：恭喜获得 ============================ -->
+<div class="game-layer hidden" id="reward-modal" role="dialog" aria-modal="true" aria-labelledby="reward-title">
+  <div class="reward-card">
+    <div class="reward-ribbon"><h2 id="reward-title">恭喜获得</h2></div>
+    <div class="reward-item">
+      <span class="reward-icon"><svg class="ico"><use href="#i-coin"/></svg></span>
+      <span class="reward-amount" id="reward-amount">×4000</span>
+    </div>
+    <p class="reward-name" id="reward-name">银币</p>
+    <button class="btn-orange" id="reward-ok" type="button">知道了</button>
+  </div>
+</div>
+
+<!-- ============================ 弹窗：规则设置（保留） ============================ -->
 <div class="modal-backdrop hidden" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title">
   <div class="modal-card rules-card">
     <div class="modal-heading"><div><span class="eyebrow">GAME SETTINGS</span><h2 id="rules-title">规则设置</h2></div><button class="close-button" id="rules-close" aria-label="关闭" type="button">×</button></div>
@@ -167,6 +509,11 @@
     <div class="modal-actions"><button class="secondary-button" id="rules-cancel" type="button">取消</button><button class="primary-button" id="rules-save" type="button">保存设置</button></div>
   </div>
 </div>
+
+<aside class="log-panel hidden" id="log-panel" aria-label="调试日志">
+  <div class="log-head"><b>调试日志</b><span>回合 / 状态 / AI 任务</span><button id="log-clear" type="button">清空</button></div>
+  <ol class="log-list" id="log-list"></ol>
+</aside>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body></html>
