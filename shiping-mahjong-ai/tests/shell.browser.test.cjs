@@ -59,9 +59,9 @@ test('登录弹窗：真实点击打开、校验空输入、可正常关闭', as
   assert.match(await text(page, '#login-tip'), /请输入账号/, '空账号应提示');
 
   await page.fill('#login-account', 'no_such_player');
-  await page.fill('#login-password', 'abcd');
   await page.click('#do-login');
-  assert.match(await text(page, '#login-tip'), /不存在/, '未注册账号应提示先注册');
+  assert.match(await text(page, '#login-tip'), /请输入密码/, '空密码应提示');
+  assert.equal((await shell(page)).screen, 'splash', '校验失败不能跳转');
 
   await page.click('#login-close');
   assert.equal(await page.evaluate(() => document.querySelector('#login-modal').classList.contains('hidden')), true);

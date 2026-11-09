@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d2b1f">
-<meta name="description" content="博雅 · 红河棋牌 —— 石屏麻将 AI 版，登录、赛季段位、银币结算与四人对局。">
-<title>博雅 · 红河棋牌</title>
+<meta name="description" content="石屏麻将 AI 版 —— 登录、赛季段位、银币结算与四人对局。">
+<title>石屏麻将 · 四人牌桌</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d2b1f'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23ffd77a' font-family='serif'%3E%E7%BA%A2%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 <script defer src="js/core.js"></script>
 <script defer src="js/account.js"></script>
+<script defer src="js/auth.js"></script>
 <script defer src="js/ui.js"></script>
 </head>
 <body>
@@ -49,7 +50,7 @@
     <div class="splash-vignette"></div>
   </div>
 
-  <div class="splash-logo">博雅<span>·</span>红河棋牌</div>
+  <div class="splash-logo" data-brand>石屏<span>·</span>麻将</div>
 
   <div class="splash-foot">
     <button class="splash-btn btn-wechat" id="btn-wechat" type="button">
@@ -58,9 +59,9 @@
     </button>
     <button class="splash-btn btn-phone" id="btn-phone" type="button">
       <svg viewBox="0 0 24 24" class="ph-ico" aria-hidden="true"><rect x="6.4" y="2.4" width="11.2" height="19.2" rx="2.2" fill="#fff"/><rect x="8.2" y="4.4" width="7.6" height="13" rx="1" fill="#1a8fe3" opacity=".25"/><circle cx="12" cy="19.4" r="1.05" fill="#1a8fe3"/></svg>
-      手机号登录
+      账号登录
     </button>
-    <p class="splash-note">注：任何登录方式都需要进行实名认证</p>
+    <p class="splash-note">本机账号，一个昵称加密码即可开局 · 不用等短信</p>
   </div>
 
   <div class="splash-side">
@@ -75,14 +76,17 @@
 <!-- ============================ 2. 登录 / 注册弹窗 ============================ -->
 <div class="login-layer hidden" id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
   <div class="login-card">
-    <div class="login-banner"><h1 id="login-title">登录游戏</h1></div>
+    <div class="login-banner">
+      <h1 id="login-title">登录游戏</h1>
+      <p class="login-sub" id="login-sub">首次登录会自动创建账号</p>
+    </div>
     <button class="login-close" id="login-close" type="button" aria-label="关闭">×</button>
 
     <div class="login-body">
       <label class="login-row">
-        <span class="login-label">账号：</span>
+        <span class="login-label">账号</span>
         <span class="login-input">
-          <input id="login-account" type="text" inputmode="text" autocomplete="username" maxlength="20" placeholder="请输入账号">
+          <input id="login-account" type="text" inputmode="text" autocomplete="username" maxlength="20" placeholder="手机号或昵称，2-20 位">
           <button class="input-clear" id="login-clear" type="button" aria-label="清除">×</button>
           <button class="input-caret" id="login-caret" type="button" aria-label="历史账号">▾</button>
         </span>
@@ -90,19 +94,26 @@
       <div class="login-history hidden" id="login-history"></div>
 
       <label class="login-row">
-        <span class="login-label">密码：</span>
+        <span class="login-label">密码</span>
         <span class="login-input">
-          <input id="login-password" type="password" autocomplete="current-password" maxlength="20" placeholder="请输入密码">
+          <input id="login-password" type="password" autocomplete="current-password" maxlength="32" placeholder="4-32 位，任意字符">
+          <button class="input-eye" id="login-eye" type="button" aria-label="显示密码">显示</button>
         </span>
-        <button class="login-forgot" id="forgot-pw" type="button">忘记密码</button>
       </label>
 
-      <p class="login-tip" id="login-tip"></p>
+      <div class="login-opts">
+        <label class="login-remember"><input type="checkbox" id="login-remember" checked><span>记住账号</span></label>
+        <button class="login-forgot" id="forgot-pw" type="button">忘记密码</button>
+      </div>
+
+      <p class="login-tip" id="login-tip" role="status" aria-live="polite"></p>
 
       <div class="login-btns">
-        <button class="btn-brown" id="do-register" type="button">注 册</button>
-        <button class="btn-green-solid" id="do-login" type="button">登 录</button>
+        <button class="btn-green-solid login-primary" id="do-login" type="button">登 录</button>
+        <button class="btn-brown" id="do-register" type="button">注册新账号</button>
       </div>
+
+      <p class="login-note">账号与银币存在本机浏览器，换设备或清缓存会丢失。参与联机后改为服务端账号。</p>
     </div>
 
     <div class="login-foot"><button class="login-cs" id="login-cs" type="button">联系客服</button></div>
@@ -145,7 +156,7 @@
 <!-- ============================ 5. 主界面 ============================ -->
 <section class="screen home hidden" id="screen-home">
   <header class="home-top">
-    <div class="player-chip">
+    <div class="player-chip" id="home-player" role="button" tabindex="0" aria-label="账号与本机存档">
       <div class="player-avatar" id="home-avatar">黯</div>
       <div class="player-meta">
         <div class="player-line">
@@ -159,7 +170,7 @@
       </div>
     </div>
 
-    <div class="home-logo">博雅<span>·</span>红河棋牌</div>
+    <div class="home-logo" data-brand>石屏<span>·</span>麻将</div>
 
     <div class="home-acts">
       <button class="act-btn" id="act-knife" type="button"><i class="act-dot"></i><span>砍一刀</span></button>
@@ -168,6 +179,20 @@
       <span class="act-clock" id="act-clock">23:20</span>
     </div>
   </header>
+
+  <div class="account-menu hidden" id="account-menu" role="menu" aria-label="账号">
+    <div class="am-head">
+      <div class="am-face" id="am-face">黯</div>
+      <div class="am-meta">
+        <b id="am-nick">小双州黯</b>
+        <span id="am-account">账号 —</span>
+      </div>
+    </div>
+    <p class="am-rank" id="am-rank">新秀一阶 · 0/420</p>
+    <button class="am-item" id="am-switch" type="button" role="menuitem">切换账号</button>
+    <button class="am-item" id="am-logout" type="button" role="menuitem">退出登录</button>
+    <button class="am-item danger" id="am-clear" type="button" role="menuitem">清空本机存档</button>
+  </div>
 
   <div class="home-body">
     <aside class="ladder" id="home-ladder">
@@ -296,7 +321,7 @@
 
         <div class="dice-overlay hidden" id="dice-overlay" aria-live="polite">
           <div class="dice-card">
-            <span class="dice-eyebrow">红河牌桌 · 掷骰定庄</span>
+            <span class="dice-eyebrow">掷骰定庄</span>
             <h2>掷骰定庄 · 决定开牌位置</h2>
             <div class="dice-pair">
               <div class="dice-cube" id="dice-one" aria-label="第一颗骰子"></div>

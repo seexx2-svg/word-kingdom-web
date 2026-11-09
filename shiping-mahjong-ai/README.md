@@ -1,4 +1,4 @@
-# 石屏麻将 · 红河棋牌外壳（浏览器单机版）
+# 石屏麻将（浏览器单机版）
 
 原生 HTML/CSS/JavaScript 网页麻将，无框架、无构建步骤。
 
@@ -10,7 +10,8 @@
 > 2. 出牌飞行动画、吃碰杠副露高亮、3D 六面骰子落桌、桌内胡牌结算；
 > 3. **按界面截图重做外壳**：启动页 → 登录/注册 → S25 赛季 → 赛季继承 → 主界面 → 场次选择 → 对局 → 结算；
 > 4. **本地账号体系**：银币 / 金条 / 段位分 / 战绩 / 每日签到 / 回归好礼 / 赛季继承；
-> 5. 牌桌布局 v4 与手机竖屏适配。
+> 5. **登录机制单独抽成一层**（`js/auth.js`）：一步登录、记住账号、切换/退出账号、清空本机存档；
+> 6. 牌桌布局 v4 与手机竖屏适配。
 >
 > 详细说明见 [`docs/DEVELOPMENT-REPORT.md`](docs/DEVELOPMENT-REPORT.md)，截图见 `docs/screenshots/`。
 
@@ -30,8 +31,9 @@ python3 -m http.server 8080     # 或 npm run serve
 
 | 界面 | 说明 |
 | --- | --- |
-| 启动页 | 微信登录为占位（需开放平台），实际走「手机号登录 → 账号密码」 |
-| 登录弹窗 | 本机账号注册 / 登录，自动记住上次账号；密码只存哈希，不存明文 |
+| 启动页 | 微信登录为占位（需开放平台），主按钮是「账号登录」，不用等短信 |
+| 登录弹窗 | **输一次就进去**：没有的账号自动创建；支持中文昵称、手机号、字母数字；密码 4-32 位 |
+| 账号浮层 | 主界面左上角点头像打开：看当前账号、切换账号、退出登录、清空本机存档 |
 | 恭喜获得 | 新号注册送 4,000 银币（初始 5,000，合计 9,000） |
 | S25 赛季 | 赛季开启动画，点击继续 |
 | 赛季继承 | 上赛季称号「长工 112 分」→ 本赛季「未激活 0 分」 |
@@ -49,12 +51,31 @@ python3 -m http.server 8080     # 或 npm run serve
 - **段位阶梯**：新秀一阶 0 / 新秀二阶 420 / 新秀三阶 620 / 下士 860 / 中士 1140 / 上士 1460 / 少尉 1820 / 中尉 2220 / 上尉 2660 / 少校 3140 / 中校 3660 / 上校 4220 / 中将 4820。
 - 这一层是纯逻辑，不碰 DOM，浏览器与 Node 共用同一份实现，因此账本数字与测试断言完全同源。
 
+## 登录机制（`js/auth.js`）
+
+界面只跟这一层打交道，不直接碰 `localStorage`，也不自己拼账号规则。
+
+```js
+await Auth.signInOrSignUp({ account, password })   // 主路径：能登就登，没有就建
+await Auth.signUp({ account, password })           // 显式注册，重名直接报 duplicate
+await Auth.signIn({ account, password })           // 只登录，不建号
+await Auth.signOut()
+await Auth.current()                               // 当前账号或 null
+```
+
+- **一步登录**：主按钮「登录」在账号不存在时自动建号；密码错了只报错，**不会**偷偷把老账号改成新号。
+- **账号规则只有一处**：`account.js` 的 `checkAccount` / `checkPassword`。2-20 位，中文 / 字母 / 数字 / `_@.-`，11 位手机号自动识别。
+- **全部方法都是 async**，现在立刻 resolve；将来接服务端只要实现同样 5 个方法再 `Auth.useProvider(cloud)`，界面一行不用改。
+- 密码只存 djb2 变体哈希（**不是安全凭据**，仅用于区分本机上的几个号），明文不落盘。
+- 记住账号默认开启；关闭后不再回填，但历史列表仍保留（最多 8 条）。
+- 浏览器禁用本地存储时，启动即提示「账号和进度无法保存」，不会让人以为登录成功了。
+
 ## 测试
 
 ```bash
-npm test              # 规则 + 玩法变体 + 账号经济 + 人机模拟（62 条，纯 Node）
-npm run test:browser  # 真实 Chromium（25 条，需要本机 Chrome/Edge 与 npm i）
-npm run test:all      # 两者都跑，共 87 条
+npm test              # 规则 + 玩法变体 + 账号经济 + 认证层 + 人机模拟（88 条，纯 Node）
+npm run test:browser  # 真实 Chromium：对局 / 登录 / 外壳（39 条，需要本机 Chrome/Edge 与 npm i）
+npm run test:all      # 两者都跑，共 127 条
 node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 ```
 
@@ -62,6 +83,7 @@ node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 
 - **规则**：136 张守恒、吃只能吃下家、碰任意家、明/暗/补杠、杠后补牌、4 面子 + 1 将、自摸/点炮、烂牌胡 147/258/369、计分表。
 - **经济**：倍率、破产截断、段位分、段位阶梯、注册登录、密码哈希、每日签到、连续奖励、回归好礼、赛季继承。核心用例的期望值直接取自界面截图里的数字。
+- **登录**：中文昵称 / 手机号建号、密码错不建号、重名不覆盖、记住账号开关、刷新后会话保持、切换与退出、清档不动别人的键、手机端不溢出。
 - **对局**：出牌飞行动画、副露顺子与被吃牌高亮、骰子六面与落点、桌内结算不溢出、AI 任务丢失 6 秒自愈、浏览器内连续 20 局无卡死且积分零和。
 - **几何**：桌面 1440×900 与手机 390×844 下，四家弃牌区互不重叠、中央信息台不压牌河、手牌完整在视口内、hover 不位移且能点中。
 
@@ -72,6 +94,9 @@ node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 | `__shipingMahjongDebug()` | 局面快照：阶段、手牌、副露、牌河、银币、段位、等待行动者 |
 | `__shipingMahjongShell()` | 外壳快照：当前界面、账号、场次、结算、打开的弹层 |
 | `__shipingMahjongRegister / Login / Logout` | 绕过输入框直接注册 / 登录 / 登出 |
+| `__shipingMahjongAuth()` | 认证状态：记住的账号、历史账号、是否记住、当前 provider |
+| `__shipingMahjongLoginForm()` | 登录弹窗状态：是否打开、输入值、密码类型、提示文字、是否在提交中 |
+| `__shipingMahjongAccountMenu(force)` | 打开 / 关闭主界面账号浮层，返回是否可见 |
 | `__shipingMahjongEnterHome / SkipSeason / OpenHall / StartTable` | 跳转到指定界面 |
 | `__shipingMahjongOpenSignin / OpenBack` | 打开签到 / 回归好礼 |
 | `__shipingMahjongResetProgress()` | 清空本机账号与赛季标记，回到启动页 |
@@ -94,12 +119,13 @@ node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 - `index.html`：7 个界面（启动/赛季/继承/主界面/场次/牌桌）+ 5 个弹层
 - `styles.css`：外壳、牌桌、结算、弹窗样式与响应式（含第 10 节「牌桌布局 v4」、第 11 节「窄屏」）
 - `js/core.js`：牌库、玩法变体注册表、胡牌判定、操作与计分
-- `js/account.js`：账号、银币 / 段位 / 签到 / 赛季继承（纯逻辑，Node 与浏览器共用）
+- `js/account.js`：账号规则、银币 / 段位 / 签到 / 赛季继承（纯逻辑，Node 与浏览器共用）
+- `js/auth.js`：认证层（async provider 抽象 + 本机实现 + 记住账号），界面只调这一层
 - `js/ui.js`：界面渲染、回合驱动、动画与调试接口
 
 ## 已知限制
 
-- 账号与积分存在本机 localStorage，换浏览器/清缓存即丢失；联机大厅、真实货币充值、微信登录都还是占位。
+- 账号与积分存在本机 localStorage，换浏览器/清缓存即丢失；**没有服务端账号，也没有短信验证码**，微信登录是占位。要跨设备同步需要接后端（`js/auth.js` 已留好 provider 口子）。
 - 「个旧麻将」「宝秀麻将」只是入口占位，规则未确认前不实现，避免凭猜写错规则。
 - 天梯榜、比赛场、约牌等需要服务端数据的功能一律给出提示，不伪造数据。
 

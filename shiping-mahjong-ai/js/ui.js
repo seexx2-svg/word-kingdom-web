@@ -20,6 +20,10 @@
   const KEY_VARIANT = 'shiping-mahjong-variant-v1';
   const KEY_HALL = 'honghe-hall-v1';
   const A = window.HongheAccount;
+  const Auth = window.HongheAuth;
+
+  /* 品牌名只在这里改：index.html 里的 [data-brand] 占位由 applyBrand() 统一填充 */
+  const BRAND = { title: '石屏麻将 · 四人牌桌', html: '石屏<span>·</span>麻将' };
 
   const SPEED = { claim: 700, discard: 780, kong: 620 };
   const HEARTBEAT_MS = 900;
@@ -979,29 +983,34 @@
     });
   }
 
-  /* ---------------- 本地大厅：玩家档案 + 玩法选择 ---------------- */
-  /* ---------------- 登录 / 注册 ---------------- */
-  function openLogin(focusPassword) {
+  /* ---------------- 登录 / 注册（全部走 Auth 层，异步） ---------------- */
+  let loginBusy = false;
+
+  function openLogin(opts) {
+    const o = opts || {};
     $('login-modal').classList.remove('hidden');
     loginTip('');
+    setLoginBusy(false);
     const acc = $('login-account');
-    if (acc && !acc.value) {
-      try { acc.value = localStorage.getItem('honghe-last-account') || ''; } catch (_) { /* ignore */ }
-    }
+    if (acc) acc.value = o.noFill ? '' : (Auth.lastAccount() || '');
     const pw = $('login-password');
-    if (pw) pw.value = '';
+    if (pw) { pw.value = ''; pw.type = 'password'; }
+    const eye = $('login-eye');
+    if (eye) { eye.textContent = '显示'; eye.setAttribute('aria-pressed', 'false'); }
+    const rem = $('login-remember');
+    if (rem) rem.checked = Auth.rememberEnabled();
     renderHistory();
     setTimeout(() => {
-      const el = focusPassword || (acc && acc.value) ? $('login-password') : acc;
+      const el = o.focusPassword || (acc && acc.value) ? $('login-password') : acc;
       if (el) el.focus();
     }, 60);
   }
   function renderHistory() {
-    let list = [];
-    try { list = JSON.parse(localStorage.getItem('honghe-accounts-v1') || '[]').map((a) => a.account); } catch (_) { list = []; }
+    const list = Auth.history();
     const box = $('login-history');
+    if (!box) return;
     box.innerHTML = '';
-    list.slice(-6).reverse().forEach((a) => {
+    list.forEach((a) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = a;
@@ -1020,44 +1029,160 @@
     t.textContent = msg || '';
     t.className = 'login-tip' + (ok ? ' ok' : '');
   }
-  function doLogin() {
-    const acc = $('login-account').value.trim();
-    const pw = $('login-password').value;
-    if (!acc) return loginTip('请输入账号');
-    if (!pw) return loginTip('请输入密码');
-    const res = A.login(store(), { account: acc, password: pw });
-    if (!res.ok) return loginTip(res.error);
-    A.setSession(store(), res.account.id);
-    try { localStorage.setItem('honghe-last-account', acc); } catch (_) { /* ignore */ }
+  function setLoginBusy(busy) {
+    loginBusy = !!busy;
+    ['do-login', 'do-register'].forEach((id) => {
+      const b = $(id);
+      if (b) b.disabled = loginBusy;
+    });
+    if (loginBusy) loginTip('正在登录…', true);
+  }
+  function focusField(field) {
+    const el = field === 'password' ? $('login-password') : $('login-account');
+    if (el) { el.focus(); el.select && el.select(); }
+  }
+  function togglePasswordVisible() {
+    const pw = $('login-password');
+    const eye = $('login-eye');
+    if (!pw || !eye) return;
+    const show = pw.type === 'password';
+    pw.type = show ? 'text' : 'password';
+    eye.textContent = show ? '隐藏' : '显示';
+    eye.setAttribute('aria-pressed', String(show));
+  }
+
+  /** 主路径：能登录就登录，没有这个账号就顺手建一个 —— 用户只需要输一次 */
+  async function doLogin() {
+    if (loginBusy) return;
+    const accEl = $('login-account');
+    const pwEl = $('login-password');
+    const ca = Auth.checkAccount(accEl.value);
+    if (!ca.ok) { loginTip(ca.error); focusField('account'); return; }
+    const cp = Auth.checkPassword(pwEl.value);
+    if (!cp.ok) { loginTip(cp.error); focusField('password'); return; }
+    setLoginBusy(true);
+    let res;
+    try {
+      res = await Auth.signInOrSignUp({ account: ca.value, password: cp.value, nick: ca.value });
+    } catch (err) {
+      setLoginBusy(false);
+      loginTip('登录失败：' + ((err && err.message) || err));
+      return;
+    }
+    setLoginBusy(false);
+    if (!res.ok) {
+      loginTip(res.error + (res.code === 'no-account' ? '，首次玩请点「注册新账号」' : ''));
+      focusField(res.field);
+      return;
+    }
+    finishLogin(res);
+  }
+
+  /** 显式注册：账号已存在时直接提示去登录，不做静默覆盖 */
+  async function doRegister() {
+    if (loginBusy) return;
+    const accEl = $('login-account');
+    const pwEl = $('login-password');
+    const ca = Auth.checkAccount(accEl.value);
+    if (!ca.ok) { loginTip(ca.error); focusField('account'); return; }
+    const cp = Auth.checkPassword(pwEl.value);
+    if (!cp.ok) { loginTip(cp.error); focusField('password'); return; }
+    setLoginBusy(true);
+    let res;
+    try {
+      res = await Auth.signUp({ account: ca.value, password: cp.value, nick: ca.value });
+    } catch (err) {
+      setLoginBusy(false);
+      loginTip('注册失败：' + ((err && err.message) || err));
+      return;
+    }
+    setLoginBusy(false);
+    if (!res.ok) {
+      loginTip(res.error + (res.code === 'duplicate' ? '' : ''));
+      focusField(res.field);
+      return;
+    }
+    finishLogin(res);
+  }
+
+  /** 登录/注册成功后统一收口：落账号 → 关弹层 → 见面礼 → 赛季流程 */
+  function finishLogin(res) {
+    const created = !!(res.created || res.autoCreated);
     account = res.account;
     hideAllLayers();
+    toggleAccountMenu(false);
     playSound('ui');
-    afterLogin(false);
-  }
-  function doRegister() {
-    const acc = $('login-account').value.trim();
-    const pw = $('login-password').value;
-    if (!acc) return loginTip('请输入要注册的账号');
-    if (!pw) return loginTip('请设置密码');
-    const res = A.register(store(), { account: acc, password: pw, nick: acc });
-    if (!res.ok) return loginTip(res.error);
-    A.setSession(store(), res.account.id);
-    try { localStorage.setItem('honghe-last-account', acc); } catch (_) { /* ignore */ }
-    account = res.account;
-    hideAllLayers();
-    playSound('ui');
-    toast('注册成功，欢迎 ' + res.account.nick);
-    afterLogin(true);
-  }
-  /** 新号先发一份见面礼（截图里的「恭喜获得 银币 ×4000」），再进赛季流程 */
-  function afterLogin(isNew) {
     refreshAccount();
-    if (isNew) {
-      account.coins += 4000;
-      account = A.update(store(), account);
-      showReward(4000, '银币');
+    loadSeatBalances();
+    if (created) {
+      toast('账号已创建，欢迎 ' + account.nick);
+      grantWelcome();
+    } else {
+      toast('欢迎回来，' + account.nick);
     }
     maybeSeasonFlow();
+  }
+
+  /** 新号见面礼：截图里的「恭喜获得 银币 ×4000」 */
+  function grantWelcome() {
+    if (!account) return;
+    account.coins += 4000;
+    account = A.update(store(), account);
+    loadSeatBalances();
+    showReward(4000, '银币');
+  }
+
+  /* ---------------- 账号浮层：切换 / 退出 / 清档 ---------------- */
+  function renderAccountMenu() {
+    if (!account) return;
+    const r = rankInfo();
+    const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+    set('am-face', (account.nick || '牌').slice(0, 1));
+    set('am-nick', account.nick);
+    set('am-account', '账号 ' + account.account);
+    set('am-rank', r.name + ' · 段位分 ' + r.text);
+  }
+  function toggleAccountMenu(force) {
+    const menu = $('account-menu');
+    if (!menu) return;
+    const show = force === undefined ? menu.classList.contains('hidden') : !!force;
+    if (show) renderAccountMenu();
+    menu.classList.toggle('hidden', !show);
+  }
+  /** 退出登录；switchMode 为真时退出后立刻弹登录框，方便换号 */
+  async function logoutAccount(switchMode) {
+    try { await Auth.signOut(); } catch (_) { /* ignore */ }
+    stopAi();
+    epoch += 1;
+    state = null;
+    account = null;
+    balances = [0, 0, 0, 0];
+    settlement = null;
+    rankDelta = null;
+    hideAllLayers();
+    hideResult();
+    toggleAccountMenu(false);
+    showScreen('splash');
+    if (switchMode) {
+      openLogin({ noFill: true });
+    } else {
+      toast('已退出登录');
+    }
+  }
+  function clearLocalSave() {
+    const ok = window.confirm('清空本机存档会删除这台设备上的所有账号、银币与段位，无法恢复。确定继续吗？');
+    if (!ok) return;
+    const removed = Auth.clearLocal();
+    account = null;
+    balances = [0, 0, 0, 0];
+    stopAi();
+    epoch += 1;
+    state = null;
+    hideAllLayers();
+    hideResult();
+    toggleAccountMenu(false);
+    showScreen('splash');
+    toast('已清空 ' + removed.length + ' 项本机数据');
   }
 
   /* ---------------- 赛季流程 ---------------- */
@@ -1399,20 +1524,45 @@
   }
   function bindShell() {
     on('btn-wechat', 'click', () => {
-      toast('微信登录需要接入开放平台，当前用账号登录');
+      toast('微信登录还没接入，先用账号登录');
       openLogin();
     });
     on('btn-phone', 'click', () => openLogin());
     on('splash-cs', 'click', () => toast('客服：honghe@example.com'));
     on('login-cs', 'click', () => toast('客服：honghe@example.com'));
-    on('login-close', 'click', () => $('login-modal').classList.add('hidden'));
-    on('do-login', 'click', doLogin);
-    on('do-register', 'click', doRegister);
+    on('login-close', 'click', () => { $('login-modal').classList.add('hidden'); setLoginBusy(false); });
+    on('do-login', 'click', () => { doLogin().catch((e) => loginTip('登录失败：' + e.message)); });
+    on('do-register', 'click', () => { doRegister().catch((e) => loginTip('注册失败：' + e.message)); });
+    on('login-eye', 'click', togglePasswordVisible);
     on('login-clear', 'click', () => { $('login-account').value = ''; $('login-account').focus(); });
     on('login-caret', 'click', () => $('login-history').classList.toggle('hidden'));
-    on('forgot-pw', 'click', () => loginTip('本机账号请重新注册，密码不提供找回', false));
-    on('login-password', 'keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+    on('login-remember', 'change', (e) => {
+      Auth.setRemember(e.target.checked);
+      if (e.target.checked && $('login-account').value.trim()) Auth.rememberAccount($('login-account').value.trim());
+    });
+    on('forgot-pw', 'click', () => loginTip('本机账号没有找回通道：换一个账号重新开始，或清空本机存档', false));
+    on('login-password', 'keydown', (e) => { if (e.key === 'Enter') { doLogin().catch(() => {}); } });
     on('login-account', 'keydown', (e) => { if (e.key === 'Enter') $('login-password').focus(); });
+
+    on('home-player', 'click', (e) => { e.stopPropagation(); toggleAccountMenu(); });
+    on('home-player', 'keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAccountMenu(); }
+    });
+    on('am-switch', 'click', () => { logoutAccount(true).catch(() => {}); });
+    on('am-logout', 'click', () => { logoutAccount(false).catch(() => {}); });
+    on('am-clear', 'click', clearLocalSave);
+    document.addEventListener('click', (e) => {
+      const menu = $('account-menu');
+      if (!menu || menu.classList.contains('hidden')) return;
+      if (menu.contains(e.target) || (e.target.closest && e.target.closest('#home-player'))) return;
+      toggleAccountMenu(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      toggleAccountMenu(false);
+      const modal = $('login-modal');
+      if (modal && !modal.classList.contains('hidden')) modal.classList.add('hidden');
+    });
 
     on('screen-season', 'click', gotoInherit);
     on('screen-inherit', 'click', finishSeason);
@@ -1659,10 +1809,11 @@
     window.__shipingMahjongShell = () => ({
       screen: screenId,
       account: account ? {
-        id: account.id, nick: account.nick, coins: account.coins, gold: account.gold,
+        id: account.id, account: account.account, nick: account.nick, coins: account.coins, gold: account.gold,
         rankPoints: account.rankPoints, rank: rankInfo().name, rankText: rankInfo().text,
         activated: !!account.activated, stats: Object.assign({}, account.stats)
       } : null,
+      auth: { lastAccount: Auth.lastAccount(), history: Auth.history(), remember: Auth.rememberEnabled },
       hall: A.hallOf(hallId).id,
       hallName: A.hallOf(hallId).name,
       baseBet: A.hallOf(hallId).baseBet,
@@ -1682,11 +1833,11 @@
         : A.login(store(), { account: acc, password: pw });
       if (!res.ok) return res;
       A.setSession(store(), res.account.id);
-      try { localStorage.setItem('honghe-last-account', acc); } catch (_) { /* ignore */ }
+      Auth.rememberAccount(res.account.account);
       account = res.account;
       hideAllLayers();
-      if (skipReward) { refreshAccount(); maybeSeasonFlow(); }
-      else afterLogin(kind === 'register');
+      if (skipReward) { refreshAccount(); loadSeatBalances(); maybeSeasonFlow(); }
+      else finishLogin(res);
       return { ok: true, id: account.id, nick: account.nick, coins: account.coins, screen: screenId, isNew: kind === 'register' };
     }
     window.__shipingMahjongRegister = (accName, password, nick, skipReward) => debugAuth('register', accName, password, nick, skipReward);
@@ -1696,9 +1847,28 @@
       account = null;
       hideAllLayers();
       hideResult();
+      toggleAccountMenu(false);
       showScreen('splash');
       return true;
     };
+    window.__shipingMahjongAuth = () => ({
+      lastAccount: Auth.lastAccount(), history: Auth.history(), remember: Auth.rememberEnabled(),
+      provider: Auth.currentProvider().id
+    });
+    window.__shipingMahjongAccountMenu = (force) => {
+      toggleAccountMenu(force);
+      const menu = $('account-menu');
+      return !!(menu && !menu.classList.contains('hidden'));
+    };
+    window.__shipingMahjongLoginForm = () => ({
+      open: !$('login-modal').classList.contains('hidden'),
+      account: $('login-account') ? $('login-account').value : '',
+      passwordType: $('login-password') ? $('login-password').type : '',
+      remember: $('login-remember') ? $('login-remember').checked : null,
+      tip: $('login-tip') ? $('login-tip').textContent : '',
+      busy: loginBusy,
+      historyCount: $('login-history') ? $('login-history').children.length : 0
+    });
     window.__shipingMahjongEnterHome = () => { if (!account) return false; enterHome(); return screenId; };
     window.__shipingMahjongSkipSeason = () => {
       if (!account) return false;
@@ -1715,12 +1885,12 @@
     window.__shipingMahjongOpenSignin = () => { if (!account) return false; openSignin(); return true; };
     window.__shipingMahjongOpenBack = () => { if (!account) return false; openBack(); return true; };
     window.__shipingMahjongResetProgress = () => {
-      try {
-        ['honghe-accounts-v1', 'honghe-session-v1', 'honghe-last-account'].forEach((k) => localStorage.removeItem(k));
-        Object.keys(localStorage).filter((k) => k.indexOf('honghe-season-seen-') === 0).forEach((k) => localStorage.removeItem(k));
-      } catch (_) { /* ignore */ }
+      Auth.clearLocal();
       account = null;
+      balances = loadBankroll();
       hideAllLayers();
+      hideResult();
+      toggleAccountMenu(false);
       showScreen('splash');
       return true;
     };
@@ -1818,7 +1988,22 @@
   }
 
   /* ---------------- 启动 ---------------- */
+  function applyBrand() {
+    document.title = BRAND.title;
+    document.querySelectorAll('[data-brand]').forEach((el) => { el.innerHTML = BRAND.html; });
+  }
+  /** 隐私模式 / 禁用存储时，登录状态存不住，必须当场说清楚，不能让人以为登录成功了 */
+  function storageAvailable() {
+    try {
+      localStorage.setItem('__shiping_probe', '1');
+      localStorage.removeItem('__shiping_probe');
+      return true;
+    } catch (_) { return false; }
+  }
+
   function boot() {
+    applyBrand();
+    if (!storageAvailable()) toast('浏览器禁用了本地存储，账号和进度无法保存');
     syncSoundButton();
     bind();
     bindShell();

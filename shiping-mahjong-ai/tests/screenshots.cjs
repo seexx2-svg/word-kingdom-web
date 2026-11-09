@@ -78,6 +78,30 @@ const MOB = { width: 390, height: 844 };
   await hold(340);
   await shot('shell-11-back.jpg');
 
+  /* ---- 登录细节：校验提示 + 账号浮层 ---- */
+  await desk.evaluate(() => {
+    document.getElementById('back-modal').classList.add('hidden');
+    window.__shipingMahjongResetProgress();
+  });
+  await hold(320);
+  await desk.evaluate(() => {
+    document.getElementById('btn-phone').click();
+    document.getElementById('login-account').value = '小双州黯';
+    document.getElementById('login-password').value = 'x';
+    document.getElementById('do-login').click();
+  });
+  await hold(360);
+  await shot('shell-16-login-error.jpg');
+
+  await desk.evaluate(() => {
+    document.getElementById('login-modal').classList.add('hidden');
+    window.__shipingMahjongRegister('honghe888', 'abcd', '小双州黯', true);
+    window.__shipingMahjongSkipSeason();
+    window.__shipingMahjongAccountMenu(true);
+  });
+  await hold(420);
+  await shot('shell-17-account-menu.jpg');
+
   /* ---- 手机竖屏 ---- */
   const mob = await browser.newPage({ viewport: MOB, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   await mob.goto(srv.origin + '/?debug=1', { waitUntil: 'load' });
@@ -106,6 +130,15 @@ const MOB = { width: 390, height: 844 };
   await mob.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
   await mob.waitForTimeout(420);
   await shot('shell-15-result-mobile.jpg', mob);
+
+  await mob.evaluate(() => {
+    document.getElementById('result-modal').classList.add('hidden');
+    window.__shipingMahjongResetProgress();
+  });
+  await mob.waitForTimeout(260);
+  await mob.evaluate(() => document.getElementById('btn-phone').click());
+  await mob.waitForTimeout(320);
+  await shot('shell-18-login-mobile.jpg', mob);
 
   const errs = [].concat(desk.__errors || [], mob.__errors || []);
   console.log('页面错误：', errs.length ? errs : '无');

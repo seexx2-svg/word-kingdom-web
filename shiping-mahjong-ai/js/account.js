@@ -1,4 +1,4 @@
-/* 博雅 · 红河棋牌（石屏麻将 AI 版）· 账号 / 赛季 / 经济内核 | GPL-3.0-or-later
+/* 石屏麻将（AI 版）· 账号 / 赛季 / 经济内核 | GPL-3.0-or-later
  *
  * 纯逻辑，不碰 DOM，不依赖计时器，随机与时间都由外部注入，因此可以在 Node 里直接单测。
  * 界面层只调用这里的函数，不自己算银币、段位与赛季。
@@ -154,6 +154,34 @@
   const START_COINS = 5000;
   const START_GOLD = 91;
 
+  /** 账号规则（全站唯一）：2-20 位，中文 / 字母 / 数字 / _ @ . - ，手机号按 11 位数字走 */
+  const ACCOUNT_MIN = 2;
+  const ACCOUNT_MAX = 20;
+  const PASSWORD_MIN = 4;
+  const PASSWORD_MAX = 32;
+  const ACCOUNT_RE = /^[\u3400-\u4dbf\u4e00-\u9fffA-Za-z0-9_@.-]+$/;
+  const PHONE_RE = /^1[3-9]\d{9}$/;
+
+  /** 校验账号，返回 { ok, value, kind, error }；kind 为 phone / name，界面据此换提示语 */
+  function checkAccount(raw) {
+    const v = String(raw == null ? '' : raw).trim();
+    if (!v) return { ok: false, error: '请输入账号' };
+    if (v.length < ACCOUNT_MIN) return { ok: false, error: `账号至少 ${ACCOUNT_MIN} 位` };
+    if (v.length > ACCOUNT_MAX) return { ok: false, error: `账号最多 ${ACCOUNT_MAX} 位` };
+    if (PHONE_RE.test(v)) return { ok: true, value: v, kind: 'phone' };
+    if (!ACCOUNT_RE.test(v)) return { ok: false, error: '账号只能包含中文、字母、数字或 _ @ . -' };
+    return { ok: true, value: v, kind: 'name' };
+  }
+
+  /** 校验密码，返回 { ok, value, error } */
+  function checkPassword(raw) {
+    const v = String(raw == null ? '' : raw);
+    if (!v) return { ok: false, error: '请输入密码' };
+    if (v.length < PASSWORD_MIN) return { ok: false, error: `密码至少 ${PASSWORD_MIN} 位` };
+    if (v.length > PASSWORD_MAX) return { ok: false, error: `密码最多 ${PASSWORD_MAX} 位` };
+    return { ok: true, value: v };
+  }
+
   function makeStore(backend) {
     if (backend) return backend;
     if (typeof localStorage !== 'undefined') return localStorage;
@@ -227,14 +255,17 @@
 
   function register(store, opts) {
     const o = opts || {};
-    const account = String(o.account || '').trim();
-    const password = String(o.password || '');
-    if (!/^[A-Za-z0-9_@.-]{3,20}$/.test(account)) return { ok: false, error: '账号需 3-20 位字母、数字或 _ @ . -' };
-    if (password.length < 4) return { ok: false, error: '密码至少 4 位' };
-    if (findByAccount(store, account)) return { ok: false, error: '该账号已被注册' };
+    const ca = checkAccount(o.account);
+    if (!ca.ok) return { ok: false, error: ca.error, field: 'account', code: 'bad-account' };
+    const cp = checkPassword(o.password);
+    if (!cp.ok) return { ok: false, error: cp.error, field: 'password', code: 'bad-password' };
+    const account = ca.value;
+    if (findByAccount(store, account)) {
+      return { ok: false, error: '该账号已被注册，直接登录即可', field: 'account', code: 'duplicate' };
+    }
     const list = loadAccounts(store);
     const acc = blankAccount(account, o.nick || account);
-    acc.pass = hashPassword(password);
+    acc.pass = hashPassword(cp.value);
     list.push(acc);
     saveAccounts(store, list);
     return { ok: true, account: acc, isNew: true };
@@ -242,9 +273,13 @@
 
   function login(store, opts) {
     const o = opts || {};
-    const acc = findByAccount(store, o.account);
-    if (!acc) return { ok: false, error: '账号不存在，请先注册' };
-    if (acc.pass !== hashPassword(o.password || '')) return { ok: false, error: '密码不正确' };
+    const ca = checkAccount(o.account);
+    if (!ca.ok) return { ok: false, error: ca.error, field: 'account', code: 'bad-account' };
+    const acc = findByAccount(store, ca.value);
+    if (!acc) return { ok: false, error: '没有找到这个账号', field: 'account', code: 'no-account' };
+    if (acc.pass !== hashPassword(o.password || '')) {
+      return { ok: false, error: '密码不正确', field: 'password', code: 'bad-password' };
+    }
     return { ok: true, account: acc };
   }
 
@@ -388,6 +423,8 @@
   return {
     SEASON, RANKS, INACTIVE_RANK, HALLS, SIGNIN_DAYS, SIGNIN_COINS, SIGNIN_STREAK_GOLD,
     START_COINS, START_GOLD,
+    ACCOUNT_MIN, ACCOUNT_MAX, PASSWORD_MIN, PASSWORD_MAX, PHONE_RE,
+    checkAccount, checkPassword,
     rankOf, hallOf, coinsRangeText,
     computeRound, computeRankDelta,
     makeStore, hashPassword, blankAccount, normalizeAccount,

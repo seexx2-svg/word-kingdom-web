@@ -145,9 +145,10 @@ test('coinsRangeText：带万单位且封顶不显示 Infinity', () => {
 
 test('注册：账号格式与密码长度校验', () => {
   const st = memStore();
-  assert.equal(A.register(st, { account: 'ab', password: '1234' }).ok, false, '账号太短');
-  assert.equal(A.register(st, { account: '坏名字', password: '1234' }).ok, false, '不允许中文账号');
+  assert.equal(A.register(st, { account: 'a', password: '1234' }).ok, false, '账号太短');
+  assert.equal(A.register(st, { account: '坏 名字', password: '1234' }).ok, false, '不允许空格');
   assert.equal(A.register(st, { account: 'okname', password: '12' }).ok, false, '密码太短');
+  assert.equal(A.register(st, { account: '坏名字', password: '1234' }).ok, true, '中文账号现在允许');
   assert.equal(A.register(st, { account: 'okname', password: '1234' }).ok, true);
 });
 
@@ -179,7 +180,8 @@ test('登录：密码正确通过，错误与不存在分别报错', () => {
   assert.match(bad.error, /密码/);
   const missing = A.login(st, { account: 'ghost', password: 'abcd' });
   assert.equal(missing.ok, false);
-  assert.match(missing.error, /不存在/);
+  assert.equal(missing.code, 'no-account');
+  assert.match(missing.error, /没有找到|不存在/);
 });
 
 test('密码不落明文：存储里只有哈希', () => {
