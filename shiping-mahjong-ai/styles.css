@@ -1269,3 +1269,158 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   border-radius:50%;background:#00170e66;filter:blur(6px);
 }
 @media(prefers-reduced-motion:reduce){.dice-cube.rolling{animation:none!important}}
+
+/* ==========================================================================
+   本地大厅：玩家档案 + 玩法选择（接入联机时这块换成云端账号）
+   ========================================================================== */
+.lobby{
+  position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+  padding:16px;background:radial-gradient(ellipse at 50% 0%,#0b4a33,#03170f 72%);
+  backdrop-filter:blur(3px);
+}
+.lobby.hidden{display:none}
+.lobby-panel{
+  position:relative;width:min(880px,100%);max-height:calc(100dvh - 32px);overflow:auto;
+  display:flex;flex-direction:column;gap:14px;padding:22px 24px 18px;border-radius:20px;
+  border:1px solid #d9bd7c66;
+  background:linear-gradient(165deg,#0b3a2a,#062018 62%,#102a1f);
+  box-shadow:0 24px 70px #000b,inset 0 0 0 1px #ffffff0d;color:#efe4c9;
+}
+.lobby-close{
+  position:absolute;right:12px;top:12px;width:30px;height:30px;border-radius:50%;
+  border:1px solid #d9bd7c55;background:#0b2c21aa;color:#e8d8b4;font-size:17px;line-height:1;cursor:pointer;
+}
+.lobby-head{display:flex;flex-direction:column;gap:3px;padding-right:34px}
+.lobby-head h1{margin:0;font-size:23px;letter-spacing:.04em;color:#f7e9c8}
+.lobby-sub{margin:2px 0 0;font-size:10.5px;line-height:1.6;color:#a9bfae;max-width:52ch}
+.lobby-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-height:0}
+.lobby-col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.lobby-col h2{margin:0;font-size:11px;letter-spacing:.14em;color:#e0c98f;font-weight:800}
+.lobby-hint{margin:0;font-size:9.5px;line-height:1.5;color:#8fa797}
+
+.profile-list{display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto;padding-right:2px}
+.profile-card{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;cursor:pointer;
+  padding:8px 10px;border-radius:12px;border:1px solid #d9c18b3d;background:#ffffff0a;
+  color:#e8dcc0;transition:border-color .15s,background .15s;
+}
+.profile-card:hover{background:#ffffff14;border-color:#e6cb8570}
+.profile-card.is-active{background:linear-gradient(100deg,#1d5c3f,#123a2a);border-color:#ffd28099;box-shadow:0 0 0 1px #ffd28033}
+.profile-avatar{
+  flex:0 0 auto;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+  font-size:14px;font-weight:800;color:#3d250c;background:linear-gradient(160deg,#f0d79a,#c39b55);
+}
+.profile-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.profile-text b{font-size:12px;color:#f6ead0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile-text small{font-size:9px;color:#a3b8a9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile-del{
+  flex:0 0 auto;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;
+  font-size:13px;color:#c99;opacity:.55;cursor:pointer;
+}
+.profile-del:hover{opacity:1;background:#ff7a6a22;color:#ff9d8a}
+.profile-new{display:flex;gap:6px}
+.profile-new input{
+  flex:1;min-width:0;height:32px;padding:0 11px;border-radius:10px;
+  border:1px solid #d9c18b44;background:#04180f;color:#f0e4c6;font-size:11.5px;
+}
+.profile-new input::placeholder{color:#7d937f}
+.profile-new input:focus{outline:none;border-color:#ffd28088;box-shadow:0 0 0 2px #ffd28022}
+
+.variant-list{display:flex;flex-direction:column;gap:7px}
+.variant-card{
+  display:flex;flex-direction:column;gap:1px;width:100%;text-align:left;cursor:pointer;
+  padding:9px 11px;border-radius:12px;border:1px solid #d9c18b3d;background:#ffffff0a;color:#e8dcc0;
+  transition:border-color .15s,background .15s;
+}
+.variant-card:hover:not(.is-locked){background:#ffffff14;border-color:#e6cb8570}
+.variant-card.is-active{background:linear-gradient(100deg,#1d5c3f,#123a2a);border-color:#ffd28099;box-shadow:0 0 0 1px #ffd28033}
+.variant-card b{font-size:13px;color:#f7e9c8}
+.variant-card .variant-region{font-size:9px;color:#c3ab7c;letter-spacing:.04em}
+.variant-card small{font-size:9.5px;color:#9cb3a4;line-height:1.45}
+.variant-card.is-locked{opacity:.42;cursor:not-allowed;filter:grayscale(.5)}
+
+.lobby-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:6px;border-top:1px solid #d9c18b22}
+.lobby-summary{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.lobby-summary b{font-size:12px;color:#f7e9c8}
+.lobby-summary span{font-size:9.5px;color:#9cb3a4}
+.lobby-enter{min-width:132px;padding:10px 20px!important;font-size:12.5px!important}
+
+/* 顶栏：积分 / 余额 */
+.top-points b{color:#ffd79a;font-weight:900}
+.top-dot{width:3px;height:3px;border-radius:50%;background:#8aa393;display:inline-block;margin:0 1px}
+.top-balance{color:#b9cdbe}
+#brand{cursor:pointer}
+#brand:hover .brand-mark{filter:brightness(1.12)}
+#brand:focus-visible{outline:2px solid #ffd280;outline-offset:3px;border-radius:10px}
+
+@media(max-width:760px){
+  .lobby-panel{padding:16px 14px 12px;gap:11px;border-radius:16px}
+  .lobby-head h1{font-size:18px}
+  .lobby-body{grid-template-columns:1fr;gap:12px}
+  .profile-list{max-height:24vh}
+  .lobby-sub{font-size:9.5px}
+  .lobby-foot{gap:8px}
+  .lobby-enter{width:100%;min-width:0}
+  .lobby-summary{width:100%}
+}
+@media(max-width:420px){
+  .lobby{padding:8px}
+  .lobby-panel{padding:13px 11px 10px}
+  .lobby-head h1{font-size:16px}
+  .profile-list{max-height:21vh}
+  .variant-card b{font-size:12px}
+  .variant-card small{font-size:8.5px}
+}
+
+/* ---- 大厅 v2：放大字号与呼吸感，卡片等高 ---- */
+.lobby-panel{width:min(940px,100%)!important;padding:26px 28px 20px!important;gap:18px!important}
+.lobby-head h1{font-size:26px!important;font-weight:850!important}
+.lobby-head .eyebrow{font-size:9.5px!important;letter-spacing:.18em!important;color:#c9b184!important}
+.lobby-sub{font-size:11.5px!important;line-height:1.7!important}
+.lobby-col{gap:10px!important}
+.lobby-col h2{font-size:12px!important}
+.profile-list{gap:8px!important;max-height:32vh!important}
+.profile-card{padding:11px 12px!important;gap:11px!important;border-radius:13px!important}
+.profile-avatar{width:36px!important;height:36px!important;font-size:16px!important}
+.profile-text b{font-size:13.5px!important}
+.profile-text small{font-size:10.5px!important;line-height:1.4}
+.profile-new input{height:38px!important;font-size:12.5px!important;border-radius:11px!important}
+.profile-new .ghost-button{height:38px!important;padding:0 18px!important;font-size:12px!important}
+.lobby-hint{font-size:10.5px!important;line-height:1.6!important}
+
+.variant-card{padding:12px 13px!important;gap:3px!important;min-height:74px!important;justify-content:center!important}
+.variant-card b{font-size:14.5px!important}
+.variant-card .variant-region{font-size:10px!important}
+.variant-card small{font-size:10.5px!important;line-height:1.5!important}
+
+.lobby-foot{padding-top:10px!important;gap:14px!important}
+.lobby-summary b{font-size:13px!important}
+.lobby-summary span{font-size:10.5px!important}
+.lobby-enter{padding:12px 26px!important;font-size:13.5px!important;min-width:150px!important}
+
+@media(max-width:760px){
+  .lobby-panel{padding:18px 15px 14px!important;gap:14px!important}
+  .lobby-head h1{font-size:20px!important}
+  .lobby-sub{font-size:10.5px!important}
+  .profile-list{max-height:26vh!important}
+  .variant-card{min-height:66px!important}
+  .variant-card b{font-size:13px!important}
+  .variant-card small{font-size:9.5px!important}
+}
+@media(max-width:420px){
+  .lobby-panel{padding:15px 12px 12px!important}
+  .lobby-head h1{font-size:18px!important}
+  .profile-card{padding:9px 10px!important}
+  .profile-avatar{width:32px!important;height:32px!important;font-size:14px!important}
+  .profile-text b{font-size:12.5px!important}
+  .profile-text small{font-size:9.5px!important}
+}
+
+/* ---- 手牌 hover：放大 + 发光，只向外扩张，绝不把牌从指针下移走 ---- */
+.hand-tiles .tile-face.playable:hover{
+  transform:scale(1.05) translateY(-1px)!important;
+  filter:brightness(1.1)!important;
+  outline:2px solid #ffe2a0;outline-offset:1px;
+  z-index:5;
+}
+.hand-tiles .tile-face.playable:active{transform:scale(.98)!important}

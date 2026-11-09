@@ -26,6 +26,61 @@
   const TILE_KINDS = 34;
   const DECK_SIZE = 136;
 
+  /* ---------------- 玩法变体 ----------------
+   * 每种地方麻将是一份「配置 + 规则开关默认值 + 计分表」。
+   * 目前只有石屏可用；个旧 / 宝秀先占位：拿到真实规则后只需补 defaults / scoring / 牌张配置，
+   * 不需要改动回合状态机与界面。
+   */
+  const VARIANTS = [
+    {
+      id: 'shiping',
+      name: '石屏麻将',
+      region: '云南红河 · 石屏',
+      available: true,
+      summary: '136 张 · 吃碰杠全开 · 烂牌胡',
+      deck: { suits: 3, honors: 7, flowers: 0, wildcards: 0, size: DECK_SIZE },
+      defaults: { chi: true, peng: true, gang: true, badHu: true },
+      scoring: {
+        kong: { self: 3, other: -1 },
+        selfDraw: { self: 9, other: -3 },
+        discard: { winner: 4, loser: -2, other: -1 }
+      },
+      initialScore: 100,
+      notes: '标准胡 4 副面子 + 1 对将；支持自摸、点炮、烂牌胡（14 张不重复，数牌按 147 / 258 / 369 取组）'
+    },
+    {
+      id: 'gejiu',
+      name: '个旧麻将',
+      region: '云南红河 · 个旧',
+      available: false,
+      summary: '规则整理中',
+      deck: { suits: 3, honors: 7, flowers: 0, wildcards: 0, size: DECK_SIZE },
+      defaults: { chi: true, peng: true, gang: true, badHu: true },
+      scoring: null,
+      initialScore: 100,
+      notes: '等待确认：牌张构成、特殊牌型、烂牌胡判定、吃牌限制、杠分与胡分'
+    },
+    {
+      id: 'baoxiu',
+      name: '宝秀麻将',
+      region: '云南红河 · 宝秀',
+      available: false,
+      summary: '规则整理中',
+      deck: { suits: 3, honors: 7, flowers: 0, wildcards: 0, size: DECK_SIZE },
+      defaults: { chi: true, peng: true, gang: true, badHu: true },
+      scoring: null,
+      initialScore: 100,
+      notes: '等待确认：是否保留吃牌、有无宝牌或翻宝、胡牌番型、结算分值'
+    }
+  ];
+  const DEFAULT_VARIANT = 'shiping';
+  function getVariant(id) {
+    return VARIANTS.find((v) => v.id === id) || VARIANTS.find((v) => v.id === DEFAULT_VARIANT);
+  }
+  function availableVariants() {
+    return VARIANTS.map((v) => ({ id: v.id, name: v.name, region: v.region, summary: v.summary, available: v.available, initialScore: v.initialScore }));
+  }
+
   /* ---------------- 牌面工具 ---------------- */
   function tileMeta(id) {
     if (!Number.isInteger(id) || id < 0 || id >= TILE_KINDS) return null;
@@ -233,9 +288,10 @@
 
   /* ---------------- 计分 ---------------- */
   function scoreKong(s, seat, kind) {
-    s.scores[seat] += 3;
-    for (let p = 0; p < 4; p++) if (p !== seat) s.scores[p] -= 1;
-    s.kongLog.push({ seat, kind, delta: [0, 1, 2, 3].map((p) => (p === seat ? 3 : -1)) });
+    const tb = (s.scoring && s.scoring.kong) || { self: 3, other: -1 };
+    s.scores[seat] += tb.self;
+    for (let p = 0; p < 4; p++) if (p !== seat) s.scores[p] += tb.other;
+    s.kongLog.push({ seat, kind, delta: [0, 1, 2, 3].map((p) => (p === seat ? tb.self : tb.other)) });
   }
   function scoreIsZeroSum(a) { return a.reduce((x, y) => x + y, 0) === 0; }
 
@@ -312,8 +368,9 @@
 
   /* ---------------- 对局创建 ---------------- */
   function createGame(settings, random, startInfo) {
-    const cfg = Object.assign({}, DEFAULT_SETTINGS, settings || {});
     const start = startInfo || {};
+    const variant = getVariant(start.variant);
+    const cfg = Object.assign({}, variant.defaults, DEFAULT_SETTINGS, settings || {});
     const dice = diceSetup(start.dice || [1, 1]);
     const dealer = Number.isInteger(start.dealer) ? seatIndex(start.dealer) : dice.dealer;
     const wallOffset = Number.isInteger(start.wallOffset) ? ((start.wallOffset % DECK_SIZE) + DECK_SIZE) % DECK_SIZE : dice.wallOffset;
@@ -335,6 +392,7 @@
       lastDraw: { seat: dealer, tile: first }, lastDiscard: null,
       pendingClaims: [], claimCursor: 0,
       winner: null, result: null, settings: cfg,
+      variant: variant.id, variantName: variant.name, scoring: variant.scoring,
       kongLog: [], events: [], turnCount: 0,
       dice: dice.dice.slice(),
       wallBreak: {
@@ -374,19 +432,22 @@
     const winningType = isStandardHu(winningHand, s.melds[seat].length) ? '标准胡牌' : '烂牌胡';
     const meldSnapshot = s.melds[seat].map((m) => Object.assign({}, m, { tiles: m.tiles.slice() }));
     if (source === 'self') {
-      s.scores[seat] += 9;
-      for (let p = 0; p < 4; p++) if (p !== seat) s.scores[p] -= 3;
+      const tb = (s.scoring && s.scoring.selfDraw) || { self: 9, other: -3 };
+      s.scores[seat] += tb.self;
+      for (let p = 0; p < 4; p++) if (p !== seat) s.scores[p] += tb.other;
       s.result = {
-        type: 'self', seat, title: '自摸胡', detail: `${SEAT_NAMES[seat]}自摸，胡家 +9，其余三家各 -3`,
+        type: 'self', seat, title: '自摸胡',
+        detail: `${SEAT_NAMES[seat]}自摸，胡家 +${tb.self}，其余三家各 ${tb.other}`,
         winType: '自摸', winningTile, winningHand, winningType
       };
     } else {
-      s.scores[seat] += 4;
-      s.scores[from] -= 2;
-      for (let p = 0; p < 4; p++) if (p !== seat && p !== from) s.scores[p] -= 1;
+      const tb = (s.scoring && s.scoring.discard) || { winner: 4, loser: -2, other: -1 };
+      s.scores[seat] += tb.winner;
+      s.scores[from] += tb.loser;
+      for (let p = 0; p < 4; p++) if (p !== seat && p !== from) s.scores[p] += tb.other;
       s.result = {
         type: 'discard', seat, from, title: '点炮胡',
-        detail: `${SEAT_NAMES[from]}点炮，${SEAT_NAMES[seat]}胡牌：胡家 +4，点炮 -2，其余各 -1`,
+        detail: `${SEAT_NAMES[from]}点炮，${SEAT_NAMES[seat]}胡牌：胡家 +${tb.winner}，点炮 ${tb.loser}，其余各 ${tb.other}`,
         winType: '点炮', winningTile, winningHand, winningType
       };
     }
@@ -574,6 +635,7 @@
   return {
     SUITS, HONORS, BAD_GROUPS, ACTION_PRIORITY, NEXT_SEAT, WALL_SIDES, SEAT_NAMES, PHASES,
     DEFAULT_SETTINGS, DECK_SIZE, TILE_KINDS,
+    VARIANTS, DEFAULT_VARIANT, getVariant, availableVariants,
     seatIndex, nextSeat, prevSeat, seatDistance,
     tileName, tileCode, tileLabel, tileMeta,
     diceSetup, buildDeck, shuffle, sortHand, countTiles,

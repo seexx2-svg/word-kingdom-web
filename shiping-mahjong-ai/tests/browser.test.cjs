@@ -347,3 +347,35 @@ test('桌面端 1440×900：四家弃牌区互不重叠，副露牌面保持正�
   assert.ok(info.m1[2] > 0 && info.m2[2] > 0 && info.m3[2] > 0 && info.m0[2] > 0, '四家副露都要有实际尺寸');
   await page.close();
 });
+
+test('手牌 hover 不位移：鼠标停在下沿也能点中同一张牌', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  await waitHumanTurn(page);
+  const box = await page.evaluate(() => {
+    const el = document.querySelectorAll('#hand-tiles .tile-face.playable');
+    const t = el[el.length - 1];
+    const r = t.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) };
+  });
+  assert.ok(box.w > 20 && box.h > 20, '手牌应有实际尺寸');
+
+  // 鼠标真实停到手牌最下沿（最容易点空的位置）
+  await page.mouse.move(box.x, box.bottom - 2);
+  await page.waitForTimeout(120);
+  const hit = await page.evaluate(({ x, y }) => {
+    const t = document.elementFromPoint(x, y);
+    return t ? { tile: t.dataset ? t.dataset.tile : null, cls: t.className } : null;
+  }, { x: box.x, y: box.bottom - 2 });
+
+  assert.ok(hit && hit.tile !== null && hit.tile !== undefined, `指针停在下沿时必须仍命中手牌，实际命中 ${JSON.stringify(hit)}`);
+  assert.match(String(hit.cls), /tile-face/, '命中的元素必须仍是手牌牌面');
+  assert.match(String(hit.cls), /playable/, '命中的牌必须仍处于可点状态');
+
+  // 真实点击必须生效：出牌成功
+  const before = (await snap(page)).discards.reduce((a, b) => a + b, 0);
+  await page.mouse.click(box.x, box.bottom - 2);
+  await page.waitForTimeout(260);
+  const after = (await snap(page)).discards.reduce((a, b) => a + b, 0);
+  assert.ok(after > before, '在牌面下沿点击必须能真的打出去');
+  await page.close();
+});

@@ -17,6 +17,9 @@
   const KEY_SOUND = 'shiping-mahjong-sound-v1';
   const KEY_BANK = 'shiping-mahjong-bankroll-v1';
   const KEY_ROUND = 'shiping-mahjong-round-v1';
+  const KEY_PROFILES = 'shiping-mahjong-profiles-v1';
+  const KEY_ACTIVE_PROFILE = 'shiping-mahjong-active-profile-v1';
+  const KEY_VARIANT = 'shiping-mahjong-variant-v1';
 
   const SPEED = { claim: 700, discard: 780, kong: 620 };
   const HEARTBEAT_MS = 900;
@@ -28,6 +31,10 @@
   let settings = loadSettings();
   let balances = loadBankroll();
   let roundNo = loadRoundNo();
+  let profiles = loadProfiles();
+  let activeProfileId = (() => { try { return localStorage.getItem(KEY_ACTIVE_PROFILE) || ''; } catch (_) { return ''; } })();
+  let variantId = loadVariantId();
+  let lobbyOpen = false;
   let epoch = 0;
   let aiTask = null;
   let decision = null;          // 当前人类决策 {seat, kind, actions, signature}
@@ -65,6 +72,68 @@
   function saveBankroll() { try { localStorage.setItem(KEY_BANK, JSON.stringify(balances)); } catch (_) { /* ignore */ } }
   function loadRoundNo() { try { return Math.max(1, Number(localStorage.getItem(KEY_ROUND)) || 1); } catch (_) { return 1; } }
   function saveRoundNo() { try { localStorage.setItem(KEY_ROUND, String(roundNo)); } catch (_) { /* ignore */ } }
+
+  /* ---------------- 本地玩家档案 ----------------
+   * 存储层刻意收口在这几个函数里：以后接云端账号 / 联机大厅时，
+   * 只需把 loadProfiles / saveProfiles 换成远程实现，界面层不用改。
+   */
+  function blankProfile(name) {
+    return {
+      id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: name || '你',
+      createdAt: Date.now(),
+      lastPlayed: 0,
+      stats: { games: 0, wins: 0, selfDraw: 0, discardWin: 0, draw: 0, kong: 0 },
+      points: blankPoints()   // 按玩法累计：{ shiping: 0, gejiu: 0, baoxiu: 0 }
+    };
+  }
+  /** 每种玩法都先落一个 0，避免新档案出现 undefined 键 */
+  function blankPoints() {
+    const out = {};
+    for (const v of C.VARIANTS) out[v.id] = 0;
+    return out;
+  }
+  function normalizeProfile(p) {
+    const base = blankProfile(p && p.name);
+    if (!p || typeof p !== 'object') return base;
+    const stats = Object.assign({}, base.stats, p.stats || {});
+    const points = {};
+    for (const v of C.VARIANTS) points[v.id] = Number((p.points || {})[v.id]) || 0;
+    return {
+      id: typeof p.id === 'string' && p.id ? p.id : base.id,
+      name: String(p.name || base.name).slice(0, 12),
+      createdAt: Number(p.createdAt) || base.createdAt,
+      lastPlayed: Number(p.lastPlayed) || 0,
+      stats, points
+    };
+  }
+  function loadProfiles() {
+    let list = [];
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY_PROFILES) || '[]');
+      if (Array.isArray(raw)) list = raw.map(normalizeProfile);
+    } catch (_) { list = []; }
+    if (!list.length) list = [blankProfile('你')];
+    return list;
+  }
+  function saveProfiles() {
+    try { localStorage.setItem(KEY_PROFILES, JSON.stringify(profiles)); } catch (_) { /* ignore */ }
+  }
+  function activeProfile() {
+    let p = profiles.find((x) => x.id === activeProfileId);
+    if (!p) { p = profiles[0]; activeProfileId = p.id; saveActiveProfile(); }
+    return p;
+  }
+  function saveActiveProfile() { try { localStorage.setItem(KEY_ACTIVE_PROFILE, activeProfileId); } catch (_) { /* ignore */ } }
+  function profilePoints(p, vid) { return Number((p.points || {})[vid || variantId]) || 0; }
+  function loadVariantId() {
+    try {
+      const id = localStorage.getItem(KEY_VARIANT);
+      const v = C.getVariant(id);
+      return v && v.available ? v.id : C.DEFAULT_VARIANT;
+    } catch (_) { return C.DEFAULT_VARIANT; }
+  }
+  function saveVariantId() { try { localStorage.setItem(KEY_VARIANT, variantId); } catch (_) { /* ignore */ } }
 
   /* ---------------- 调试日志 ---------------- */
   function stamp() {
@@ -345,8 +414,39 @@
       const side = $('side-score-' + i);
       if (side) side.textContent = String(projectedBalance(i));
     }
+    applyProfileToHeader();
+  }
+  /** 顶栏：当前玩家、玩法、累计积分与余额 */
+  function applyProfileToHeader() {
+    const p = activeProfile();
+    const v = C.getVariant(state && state.variant ? state.variant : variantId);
+    const title = $('brand-title');
+    if (title) title.textContent = p.name + ' 的牌桌';
+    const sub = $('brand-sub');
+    if (sub) sub.textContent = v.name + ' · 本地档案';
+    const mark = $('brand-mark');
+    if (mark) mark.textContent = (p.name || '你').slice(0, 1);
     const top = $('bankroll-display');
-    if (top) top.textContent = '你的余额 ' + projectedBalance(0);
+    if (top) {
+      top.innerHTML = '';
+      const pts = document.createElement('span');
+      pts.className = 'top-points';
+      pts.innerHTML = '积分 <b>' + profilePoints(p, v.id) + '</b>';
+      const dot = document.createElement('i');
+      dot.className = 'top-dot';
+      const bal = document.createElement('span');
+      bal.className = 'top-balance';
+      bal.textContent = '余额 ' + projectedBalance(0);
+      top.appendChild(pts);
+      top.appendChild(dot);
+      top.appendChild(bal);
+    }
+    const score0 = $('score-0');
+    const seatName = $('seat-name-0');
+    if (seatName) seatName.textContent = p.name + ' · 南家';
+    const avatar0 = $('avatar-0');
+    if (avatar0) avatar0.textContent = (p.name || '你').slice(0, 1);
+    if (score0) score0.textContent = '余额 ' + projectedBalance(0) + ' 分';
   }
   function projectedBalance(seat) {
     return balances[seat] + (state && state.phase !== C.PHASES.OVER ? state.scores[seat] : 0);
@@ -655,8 +755,30 @@
     for (let i = 0; i < 4; i++) balances[i] += state.scores[i];
     settledState = state;
     saveBankroll();
+    recordProfileResult();
     loadSeatBalances();
-    logLine('action', `本局结算 scores=${state.scores.join('/')} balances=${balances.join('/')}`);
+    logLine('action', `本局结算 scores=${state.scores.join('/')} balances=${balances.join('/')} 玩家积分=${profilePoints(activeProfile())}`);
+  }
+  /** 把本局结果写进当前玩家档案：累计积分 + 战绩。异常中止的局不计入。 */
+  function recordProfileResult() {
+    const r = state.result || {};
+    if (r.type === 'abort') return;
+    const p = activeProfile();
+    const vid = state.variant || variantId;
+    p.points[vid] = (Number(p.points[vid]) || 0) + (state.scores[0] || 0);
+    p.stats.games += 1;
+    p.stats.kong += (state.kongLog ? state.kongLog.length : 0);
+    if (r.type === 'draw') p.stats.draw += 1;
+    else if (Number.isInteger(r.seat)) {
+      if (r.seat === 0) {
+        p.stats.wins += 1;
+        if (r.type === 'self') p.stats.selfDraw += 1;
+        if (r.type === 'discard') p.stats.discardWin += 1;
+      }
+    }
+    p.lastPlayed = Date.now();
+    saveProfiles();
+    applyProfileToHeader();
   }
   function fmt(n) { return (n > 0 ? '+' : '') + n; }
 
@@ -858,6 +980,147 @@
     });
   }
 
+  /* ---------------- 本地大厅：玩家档案 + 玩法选择 ---------------- */
+  function profileLine(p) {
+    const s = p.stats || {};
+    const pts = profilePoints(p);
+    if (!s.games) return `新玩家 · ${C.getVariant(variantId).name} 积分 ${pts}`;
+    const rate = s.games ? Math.round((s.wins / s.games) * 100) : 0;
+    return `${s.games} 局 · 胡 ${s.wins}（${rate}%） · ${C.getVariant(variantId).name} 积分 ${pts}`;
+  }
+  function renderLobby() {
+    const list = $('profile-list');
+    if (!list) return;
+    list.innerHTML = '';
+    profiles.forEach((p) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'profile-card' + (p.id === activeProfileId ? ' is-active' : '');
+      card.dataset.profile = p.id;
+      const av = document.createElement('span');
+      av.className = 'profile-avatar';
+      av.textContent = (p.name || '你').slice(0, 1);
+      const box = document.createElement('span');
+      box.className = 'profile-text';
+      const nm = document.createElement('b');
+      nm.textContent = p.name;
+      const meta = document.createElement('small');
+      meta.textContent = profileLine(p);
+      box.appendChild(nm);
+      box.appendChild(meta);
+      card.appendChild(av);
+      card.appendChild(box);
+      if (profiles.length > 1) {
+        const del = document.createElement('span');
+        del.className = 'profile-del';
+        del.dataset.del = p.id;
+        del.title = '删除该档案';
+        del.textContent = '×';
+        card.appendChild(del);
+      }
+      list.appendChild(card);
+    });
+
+    const vlist = $('variant-list');
+    if (vlist) {
+      vlist.innerHTML = '';
+      C.VARIANTS.forEach((v) => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'variant-card' + (v.id === variantId ? ' is-active' : '') + (v.available ? '' : ' is-locked');
+        card.dataset.variant = v.id;
+        card.disabled = !v.available;
+        const nm = document.createElement('b');
+        nm.textContent = v.name;
+        const rg = document.createElement('span');
+        rg.className = 'variant-region';
+        rg.textContent = v.region + (v.available ? '' : ' · 即将开放');
+        const sm = document.createElement('small');
+        sm.textContent = v.summary;
+        card.appendChild(nm);
+        card.appendChild(rg);
+        card.appendChild(sm);
+        vlist.appendChild(card);
+      });
+    }
+
+    const sum = $('lobby-summary');
+    if (sum) {
+      const p = activeProfile();
+      const s = p.stats || {};
+      sum.innerHTML = '';
+      const a = document.createElement('b');
+      a.textContent = p.name;
+      const b = document.createElement('span');
+      b.textContent = `${C.getVariant(variantId).name} · 累计 ${s.games || 0} 局 / 胡 ${s.wins || 0} 次 / 积分 ${profilePoints(p)}`;
+      sum.appendChild(a);
+      sum.appendChild(b);
+    }
+  }
+  function openLobby() {
+    lobbyOpen = true;
+    renderLobby();
+    $('lobby').classList.remove('hidden');
+  }
+  function closeLobby() {
+    lobbyOpen = false;
+    $('lobby').classList.add('hidden');
+  }
+  function selectProfile(id) {
+    if (!profiles.some((p) => p.id === id)) return;
+    activeProfileId = id;
+    saveActiveProfile();
+    renderLobby();
+    applyProfileToHeader();
+    logLine('action', `切换玩家档案 → ${activeProfile().name}`);
+    playSound('ui');
+  }
+  function addProfile() {
+    const input = $('profile-input');
+    const name = (input.value || '').trim().slice(0, 12);
+    if (!name) { toast('请先输入名字'); input.focus(); return; }
+    if (profiles.some((p) => p.name === name)) { toast('已有同名档案'); return; }
+    const p = blankProfile(name);
+    profiles.push(p);
+    activeProfileId = p.id;
+    saveProfiles();
+    saveActiveProfile();
+    input.value = '';
+    renderLobby();
+    applyProfileToHeader();
+    toast('已添加玩家 ' + name);
+    playSound('ui');
+  }
+  function removeProfile(id) {
+    if (profiles.length <= 1) { toast('至少保留一个档案'); return; }
+    const p = profiles.find((x) => x.id === id);
+    if (!p) return;
+    profiles = profiles.filter((x) => x.id !== id);
+    if (activeProfileId === id) { activeProfileId = profiles[0].id; saveActiveProfile(); }
+    saveProfiles();
+    renderLobby();
+    applyProfileToHeader();
+    toast('已删除 ' + p.name);
+  }
+  function selectVariant(id) {
+    const v = C.getVariant(id);
+    if (!v || !v.available) { toast(v ? v.name + ' 规则整理中，暂未开放' : '未知玩法'); return; }
+    if (variantId === id) return;
+    variantId = id;
+    saveVariantId();
+    settings = Object.assign({}, v.defaults, settings);
+    renderLobby();
+    applyProfileToHeader();
+    toast('已切换到 ' + v.name + '，进入牌桌后生效');
+    playSound('ui');
+  }
+  function enterTable() {
+    closeLobby();
+    roundNo += 1;
+    saveRoundNo();
+    newGame();
+  }
+
   /* ---------------- 开局 ---------------- */
   function newGame(options) {
     const opts = options || {};
@@ -870,7 +1133,7 @@
     state = null;
     const dice = [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
     const play = () => {
-      const setup = C.createGame(settings, Math.random, C.diceSetup(dice));
+      const setup = C.createGame(settings, Math.random, Object.assign({ variant: variantId }, C.diceSetup(dice)));
       state = setup;
       state.__consumed = 0;
       state.lastDiscard = null;
@@ -954,6 +1217,37 @@
     }
     const logClear = $('log-clear');
     if (logClear) logClear.addEventListener('click', () => { LOGS.length = 0; const l = $('log-list'); if (l) l.innerHTML = ''; });
+
+    /* 大厅 */
+    const brand = $('brand');
+    if (brand) {
+      brand.addEventListener('click', () => { audioReady = true; playSound('ui'); openLobby(); });
+      brand.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLobby(); } });
+    }
+    const lobbyClose = $('lobby-close');
+    if (lobbyClose) lobbyClose.addEventListener('click', closeLobby);
+    const lobbyEnter = $('lobby-enter');
+    if (lobbyEnter) lobbyEnter.addEventListener('click', enterTable);
+    const lobbyEl = $('lobby');
+    if (lobbyEl) {
+      lobbyEl.addEventListener('click', (e) => {
+        if (e.target === lobbyEl) closeLobby();
+        const del = e.target.closest && e.target.closest('[data-del]');
+        if (del) { e.stopPropagation(); removeProfile(del.dataset.del); return; }
+        const card = e.target.closest && e.target.closest('[data-profile]');
+        if (card) { selectProfile(card.dataset.profile); return; }
+        const vcard = e.target.closest && e.target.closest('[data-variant]');
+        if (vcard) selectVariant(vcard.dataset.variant);
+      });
+    }
+    const profileAdd = $('profile-add');
+    if (profileAdd) profileAdd.addEventListener('click', addProfile);
+    const profileInput = $('profile-input');
+    if (profileInput) {
+      profileInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); addProfile(); }
+      });
+    }
   }
 
   /* ---------------- 调试 / 测试接口 ---------------- */
@@ -974,6 +1268,8 @@
       awaiting: a ? { seat: a.seat, kind: a.kind } : null,
       aiTask: aiTask ? { seat: aiTask.seat, kind: aiTask.kind, epoch: aiTask.epoch } : null,
       epoch, result: state.result, settings, roundNo, lastDice,
+      variant: state.variant, variantName: state.variantName,
+      profile: { id: activeProfile().id, name: activeProfile().name, points: profilePoints(activeProfile()), stats: Object.assign({}, activeProfile().stats) },
       logs: LOGS.slice(-40)
     };
   }
@@ -1023,6 +1319,17 @@
     window.__shipingMahjongLogs = () => LOGS.slice();
     window.__shipingMahjongAutoPlay = autoPlayGames;
     window.__shipingMahjongSetSpeed = (v) => { speedScale = Number(v); return speedScale; };
+    /* 大厅与档案调试接口 */
+    window.__shipingMahjongLobby = () => ({
+      open: lobbyOpen,
+      variantId,
+      activeProfileId,
+      profiles: profiles.map((p) => ({ id: p.id, name: p.name, points: Object.assign({}, p.points), stats: Object.assign({}, p.stats) })),
+      variants: C.availableVariants()
+    });
+    window.__shipingMahjongOpenLobby = () => { openLobby(); return true; };
+    window.__shipingMahjongAddProfile = (name) => { const i = $('profile-input'); if (i) i.value = name; addProfile(); return activeProfile().name; };
+    window.__shipingMahjongSelectVariant = (id) => { selectVariant(id); return variantId; };
     /** 模拟「AI 定时任务丢失」：清掉任务但不推进状态，用于验证心跳自愈 */
     window.__shipingMahjongDropAiTask = () => {
       if (!state || state.phase === C.PHASES.OVER) return false;
@@ -1120,6 +1427,10 @@
   function boot() {
     syncSoundButton();
     bind();
+    if (!profiles.some((p) => p.id === activeProfileId)) {
+      activeProfileId = profiles[0].id;
+      saveActiveProfile();
+    }
     loadSeatBalances();
     installDebugApi();
     heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
