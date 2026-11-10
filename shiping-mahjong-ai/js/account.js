@@ -82,7 +82,12 @@
    *   普通输家 -2000；点炮者 -4000；自摸三家各 -4000；赢家收实际扣到的总和
    *   点炮者余额不足时只扣到 0，并标记「破产」
    * 胡牌的那一家由谁起手（骰子点数决定）不影响分数，只影响谁先摸牌。
+   *
+   * 杠分（2026-11 补）：明杠 / 补杠 三家各出 1 个底注（2000），暗杠 三家各出 2 个
+   * 底注（4000）。杠是当场就"过了钱"的，所以它和胡牌分开记，最后一起进结算——
+   * 荒牌也照算，不会因为没人胡就把杠分吞掉。
    */
+  const KONG_KINDS = { '明杠': 1, '补杠': 1, '暗杠': 2 };
   function computeRound(opts) {
     const o = opts || {};
     const type = o.type || 'draw';
@@ -91,8 +96,30 @@
     const unit = baseBet * multiplier;
     const deltas = [0, 0, 0, 0];
     const reasons = ['', '', '', ''];
+    const kongDeltas = [0, 0, 0, 0];
+    const kongs = [];
+    (Array.isArray(o.kongs) ? o.kongs : []).forEach((k) => {
+      const seat = Number(k && k.seat);
+      if (!Number.isInteger(seat) || seat < 0 || seat > 3) return;
+      const kind = KONG_KINDS[k.kind] ? k.kind : '明杠';
+      const per = baseBet * KONG_KINDS[kind];
+      for (let p = 0; p < 4; p++) {
+        if (p === seat) continue;
+        kongDeltas[p] -= per;
+        kongDeltas[seat] += per;
+      }
+      kongs.push({ seat, kind, per, total: per * 3 });
+    });
+
     if (type === 'draw' || !Number.isInteger(o.winnerSeat)) {
-      return { type, baseBet, multiplier, unit, deltas, reasons, total: 0, busted: [false, false, false, false] };
+      for (let s = 0; s < 4; s++) {
+        deltas[s] = kongDeltas[s];
+        if (kongDeltas[s]) reasons[s] = kongDeltas[s] > 0 ? '杠' : '杠分';
+      }
+      return {
+        type, baseBet, multiplier, unit, deltas, reasons, kongs, kongDeltas,
+        total: 0, busted: [false, false, false, false]
+      };
     }
     const winner = o.winnerSeat;
     const discarder = Number.isInteger(o.discarderSeat) ? o.discarderSeat : -1;
@@ -105,17 +132,20 @@
     const busted = [false, false, false, false];
     let total = 0;
     for (let s = 0; s < 4; s++) {
-      if (s === winner || !due[s]) continue;
-      const have = Math.max(0, Number((o.balances || [])[s]));
+      if (s === winner) continue;
+      const kong = kongDeltas[s];
+      if (!due[s] && !kong) continue;
+      // 杠分先过账，剩下的余额才用来付胡牌；余额不够就付到 0
+      const have = Math.max(0, Number((o.balances || [])[s]) + kong);
       const pay = Number.isFinite(have) && (o.balances || []).length ? Math.min(due[s], have) : due[s];
-      if (pay < due[s]) busted[s] = true;
-      deltas[s] = -pay;
-      reasons[s] = s === discarder ? '点炮' : '输';
-      total += pay;
+      if (due[s] && pay < due[s]) busted[s] = true;
+      deltas[s] = -pay + kong;
+      if (due[s]) { reasons[s] = s === discarder ? '点炮' : '输'; total += pay; }
+      else reasons[s] = '杠分';
     }
-    deltas[winner] = total;
+    deltas[winner] = total + kongDeltas[winner];
     reasons[winner] = type === 'self' ? '自摸' : '胡';
-    return { type, baseBet, multiplier, unit, deltas, reasons, total, busted };
+    return { type, baseBet, multiplier, unit, deltas, reasons, kongs, kongDeltas, total, busted };
   }
 
   /** 段位分变化：赢家 +7，点炮 -3，其余 -2（无庄家，所以没有倍率） */

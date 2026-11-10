@@ -16,6 +16,7 @@
   const SEATS = ['南家', '北家', '西家', '东家'];
   const KEY_SETTINGS = 'shiping-mahjong-settings-v1';
   const KEY_SOUND = 'shiping-mahjong-sound-v1';
+  const KEY_SKIN = 'shiping-mahjong-skin-v1';
   const KEY_BANK = 'shiping-mahjong-bankroll-v1';
   const KEY_ROUND = 'shiping-mahjong-round-v1';
   const KEY_VARIANT = 'shiping-mahjong-variant-v1';
@@ -85,6 +86,15 @@
     } catch (_) { return { chi: true, peng: true, gang: true, badHu: true }; }
   }
   function loadSoundSetting() { try { return localStorage.getItem(KEY_SOUND) !== 'off'; } catch (_) { return true; } }
+  /* 立直牌面皮肤：默认开（用户点名要 90 年代立直麻将机的感觉），
+     关掉立刻回滚到 assets/tiles/ 的原版牌面，不用刷新。 */
+  function loadSkinSetting() { try { return localStorage.getItem(KEY_SKIN) !== 'off'; } catch (_) { return true; } }
+  function applySkin(on) {
+    const body = document.body;
+    body.classList.toggle('skin-riichi', !!on);
+    const box = $('setting-riichi');
+    if (box) box.checked = !!on;
+  }
   function loadBankroll() {
     try {
       const a = JSON.parse(localStorage.getItem(KEY_BANK) || 'null');
@@ -263,6 +273,7 @@
     try {
       if (!audioCtx) audioCtx = new Audio();
       if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (kind === 'thunder') { thunder(); return; }
       const bank = {
         ui: [[880, 0, 0.045, 0.018, 'sine']],
         zhuang: [[420, 0, 0.06, 0.02, 'triangle'], [620, 0.065, 0.07, 0.022, 'triangle'], [820, 0.14, 0.08, 0.024, 'triangle']],
@@ -278,6 +289,38 @@
       };
       (bank[kind] || bank.ui).forEach((v) => tone(...v));
     } catch (_) { /* ignore */ }
+  }
+  /* 雷声。振荡器发不出"噼啪"，得先造一段白噪声再滤波：
+     前 30ms 是炸响，后面拖一条低通滚雷，最后垫一个 55Hz 的低频让它有重量。 */
+  function noiseBurst(start, duration, volume, cutoff) {
+    if (!audioCtx) return;
+    const rate = audioCtx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * duration));
+    const buf = audioCtx.createBuffer(1, len, rate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const t = i / len;
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2);
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    const at = audioCtx.currentTime + start;
+    lp.frequency.setValueAtTime(cutoff, at);
+    lp.frequency.exponentialRampToValueAtTime(180, at + duration);
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(Math.max(0.0002, volume), at);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+    src.connect(lp); lp.connect(gain); gain.connect(audioCtx.destination);
+    src.start(at); src.stop(at + duration + 0.02);
+  }
+  function thunder() {
+    noiseBurst(0, 0.42, 0.19, 7000);          // 炸响
+    noiseBurst(0.16, 0.95, 0.075, 900);       // 滚雷尾巴
+    tone(1500, 0, 0.05, 0.028, 'square');     // 高频裂口
+    tone(58, 0.03, 0.85, 0.085, 'sine');      // 低频重量
+    tone(38, 0.08, 1.1, 0.06, 'triangle');
   }
   function toggleSound() {
     soundEnabled = !soundEnabled;
@@ -352,18 +395,57 @@
       state.scores.join(',')
     ].join('#');
   }
+  /* ---------------- 牌墙：真实墩数 ----------------
+   * 一副 136 张 = 68 墩，四边各码 17 墩。以前四条墙是画死在 CSS 里的渐变条，
+   * 摸多少张它都一个样子，只能靠顶栏的数字猜还剩多少。现在每条墙由 17 个
+   * .ws 组成，按 state.wall.length 反算还剩几墩，从开牌那一侧起一块块消失。
+   */
+  const WALL_STACKS = 17;
+  const WALL_SIDES = ['south', 'east', 'north', 'west'];
+  const SIDE_OF_MARK = { '南': 'south', '北': 'north', '西': 'east', '东': 'west' };
+  function wallKeep() {
+    const remain = Math.max(0, Math.floor((state.wall.length + 1) / 2));
+    // 按四面平摊：真打的时候牌墙是从开牌点一路绕过去的，但那样会出现
+    // "一边全空、三边不动"的怪画面。这里把总墩数平摊到四面，四面一起变短，
+    // 总数仍然精确等于 state.wall.length。
+    const q = Math.floor(remain / 4);
+    const r = remain % 4;
+    const keep = {};
+    WALL_SIDES.forEach((k, i) => { keep[k] = q + (i < r ? 1 : 0); });
+    return keep;
+  }
+  function paintWall() {
+    const keep = wallKeep();
+    WALL_SIDES.forEach((side) => {
+      const box = document.querySelector('.wall-' + side);
+      if (!box) return;
+      if (box.children.length !== WALL_STACKS) {
+        box.innerHTML = '';
+        for (let i = 0; i < WALL_STACKS; i++) {
+          const st = document.createElement('i');
+          st.className = 'ws';
+          box.appendChild(st);
+        }
+      }
+      const n = keep[side];
+      Array.from(box.children).forEach((el, i) => el.classList.toggle('is-gone', i >= n));
+    });
+  }
+
   function render(force) {
     if (!state) return;
     const sig = computeSig();
     if (!force && sig === renderSig) { renderSeatStatus(); return; }
     renderSig = sig;
-    $('wall-count').textContent = '牌墙 ' + state.wall.length;
+    $('wall-count').textContent = '牌墙 ' + Math.floor((state.wall.length + 1) / 2) + ' 墩';
+    $('wall-count').title = '剩 ' + state.wall.length + ' 张未摸';
     $('hand-count').textContent = state.hands[0].length + ' 张';
     // 石屏麻将没有庄家：骰子只决定从谁那里起手，不翻倍、不连庄
     $('dealer-label').textContent = `${NAMES[state.dealer]} 起手 · ${state.wallBreak.side}墙第${state.wallBreak.stack}墩`;
     $('round-label').textContent = '第 ' + roundNo + ' 局';
     markDealer(state.dealer);
     markWallBreak(state.wallBreak.side);
+    paintWall();
     for (let s = 0; s < 4; s++) {
       renderBacks(s);
       renderMelds(s);
@@ -883,6 +965,7 @@
       baseBet: hall.baseBet,
       winnerSeat: winner,
       discarderSeat: r.type === 'discard' ? r.from : -1,
+      kongs: (state.kongLog || []).map((k) => ({ seat: k.seat, kind: k.kind })),
       balances: balances.slice()
     });
     for (let i = 0; i < 4; i++) balances[i] = Math.max(0, balances[i] + settlement.deltas[i]);
@@ -975,6 +1058,8 @@
       row.append(l, v);
       lines.appendChild(row);
     };
+    const kongNet = settlement ? (settlement.kongDeltas ? settlement.kongDeltas[seat] : 0) : 0;
+    const mine = settlement && settlement.kongs ? settlement.kongs.filter((k) => k.seat === seat) : [];
     if (settlement && settlement.multiplier) {
       if (isWinner) {
         addLine(resultTitle(r), '1 倍');
@@ -982,6 +1067,14 @@
       } else {
         addLine(settlement.reasons[seat] || '输', settlement.multiplier + ' 倍');
       }
+    }
+    // 杠分单独列出来：谁开的杠、开的哪种、收了多少，一眼对得上
+    if (mine.length) {
+      const byKind = {};
+      mine.forEach((k) => { byKind[k.kind] = (byKind[k.kind] || 0) + k.total; });
+      Object.keys(byKind).forEach((kind) => addLine(kind, '+' + A.fmtNum(byKind[kind])));
+    } else if (kongNet) {
+      addLine('杠分', A.fmtSigned(kongNet));
     }
     card.appendChild(lines);
 
@@ -1038,6 +1131,43 @@
     sheet.classList.toggle('is-scroll', sheet.scrollHeight > sheet.clientHeight + 2);
   }
 
+  /** 闪电画在结算层里（按坐标定位），不放在牌里面——.result-hand-row 是 overflow:hidden，
+   *  贴在牌上的闪电会被裁掉半截，那还不如不做。 */
+  function strikeWinningTile() {
+    const modal = $('result-modal');
+    const row = $('result-hand');
+    if (!modal || !row || modal.classList.contains('hidden')) return false;
+    const tile = row.querySelector('.tile-face.winning-tile');
+    if (!tile) return false;
+    const tr = tile.getBoundingClientRect();
+    const mr = modal.getBoundingClientRect();
+    if (!tr.width) return false;
+    const bolt = document.createElement('span');
+    bolt.className = 'result-bolt' + (reducedMotion() ? ' is-still' : '');
+    // 闪电用"描边当光晕"，不用 blur 滤镜——SVG 里的 blur 在非等比拉伸时会露出一块方框
+    bolt.innerHTML = '<svg viewBox="0 0 80 200" preserveAspectRatio="none" aria-hidden="true">'
+      + '<path class="bolt-halo" d="M50 4 L14 96 L36 96 L24 196 L68 76 L46 76 L60 4 Z"/>'
+      + '<path class="bolt-glow" d="M50 4 L14 96 L36 96 L24 196 L68 76 L46 76 L60 4 Z"/>'
+      + '<path class="bolt-core" d="M50 4 L14 96 L36 96 L24 196 L68 76 L46 76 L60 4 Z"/>'
+      + '<path class="bolt-fork" d="M30 74 L10 104"/><path class="bolt-fork" d="M47 122 L64 152"/>'
+      + '</svg>';
+    bolt.style.left = Math.round(tr.left - mr.left + tr.width / 2) + 'px';
+    bolt.style.top = Math.round(tr.top - mr.top + Math.round(tr.height * 0.35)) + 'px';
+    const flash = document.createElement('span');
+    flash.className = 'result-flash' + (reducedMotion() ? ' is-still' : '');
+    modal.appendChild(flash);
+    modal.appendChild(bolt);
+    modal.classList.add('is-striking');
+    tile.classList.add('is-struck');
+    playSound('thunder');
+    window.setTimeout(() => {
+      bolt.remove(); flash.remove();
+      modal.classList.remove('is-striking');
+      tile.classList.remove('is-struck');
+    }, 1500);
+    return true;
+  }
+
   function showResult() {
     if (!state || !state.result) return;
     const r = state.result;
@@ -1060,7 +1190,9 @@
     } else {
       const msg = document.createElement('div');
       msg.className = 'rs-total';
-      msg.textContent = r.type === 'abort' ? '本局已中止，不计入战绩' : '本局荒牌，银币不变';
+      const hasKong = !!(settlement && settlement.kongDeltas && settlement.kongDeltas.some((v) => v));
+      msg.textContent = r.type === 'abort' ? '本局已中止，不计入战绩'
+        : (hasKong ? '本局荒牌，只算杠分' : '本局荒牌，银币不变');
       selfBox.appendChild(msg);
       for (let s = 0; s < 4; s++) others.appendChild(resultCard(s, -1, r));
     }
@@ -1087,7 +1219,11 @@
 
     $('result-modal').classList.remove('hidden');
     document.querySelector('.table-frame').classList.add('round-over');
-    requestAnimationFrame(() => fitResult());
+    requestAnimationFrame(() => {
+      fitResult();
+      // 等面板落位、牌宽算好再劈，否则闪电会打在旧坐标上
+      window.setTimeout(() => strikeWinningTile(), reducedMotion() ? 0 : 220);
+    });
   }
   function hideResult() {
     $('result-modal').classList.add('hidden');
@@ -2232,6 +2368,7 @@
     $('setting-peng').checked = !!settings.peng;
     $('setting-gang').checked = !!settings.gang;
     $('setting-badHu').checked = !!settings.badHu;
+    $('setting-riichi').checked = document.body.classList.contains('skin-riichi');
     $('rules-modal').classList.remove('hidden');
   }
   function closeRules() { $('rules-modal').classList.add('hidden'); }
@@ -2278,6 +2415,13 @@
     $('rules-close').addEventListener('click', closeRules);
     $('rules-cancel').addEventListener('click', closeRules);
     $('rules-save').addEventListener('click', saveSettings);
+    /* 立直牌面开关即时生效，不跟着「保存设置」走——换皮看一眼就能决定要不要 */
+    $('setting-riichi').addEventListener('change', () => {
+      const on = $('setting-riichi').checked;
+      applySkin(on);
+      try { localStorage.setItem(KEY_SKIN, on ? 'on' : 'off'); } catch (_) { /* ignore */ }
+      toast(on ? '已切换到立直麻将机牌面' : '已换回传统牌面');
+    });
     $('rules-modal').addEventListener('click', (e) => { if (e.target === $('rules-modal')) closeRules(); });
     $('new-game').addEventListener('click', () => { audioReady = true; roundNo += 1; saveRoundNo(); newGame(); });
     $('result-new').addEventListener('click', () => { roundNo += 1; saveRoundNo(); newGame(); });
@@ -2618,6 +2762,24 @@
       showResult();
       return state.result;
     };
+    /** 手动触发一次闪电，供视觉回归与用例使用 */
+    window.__shipingMahjongStrike = () => strikeWinningTile();
+    window.__shipingMahjongState = () => state;
+    window.__shipingMahjongSettlement = () => settlement;
+    window.__shipingMahjongWall = () => {
+      if (!state) return null;
+      const keep = wallKeep();
+      return {
+        tiles: state.wall.length,
+        stacks: Math.floor((state.wall.length + 1) / 2),
+        keep,
+        visible: ['south', 'east', 'north', 'west'].map((k) => {
+          const box = document.querySelector('.wall-' + k);
+          return box ? Array.from(box.children).filter((el) => !el.classList.contains('is-gone')).length : -1;
+        }),
+        label: ($('wall-count') || {}).textContent || ''
+      };
+    };
     window.__shipingMahjongDiceFaces = () => {
       const read = (id) => {
         const host = $(id);
@@ -2685,6 +2847,7 @@
     applyBrand();
     if (!storageAvailable()) toast('浏览器禁用了本地存储，登录状态与游客进度都无法保存');
     syncSoundButton();
+    applySkin(loadSkinSetting());
     if (Sfx) Sfx.setEnabled(soundEnabled);
     bind();
     bindShell();

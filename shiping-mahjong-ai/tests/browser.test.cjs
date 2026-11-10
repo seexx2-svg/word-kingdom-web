@@ -400,3 +400,196 @@ test('手牌 hover 不位移：鼠标停在下沿也能点中同一张牌', asyn
   assert.ok(moved, '在牌面下沿点击必须能真的打出去：' + JSON.stringify({ before: { d: before.discards, m: before.melds, c: before.current }, after: { d: after.discards, m: after.melds, c: after.current } }));
   await page.close();
 });
+
+/* ---------------- v0.10.0：标题裁切 / 杠分 / 闪电 / 开牌字 / 真牌墙 ---------------- */
+
+test('结算：标题「标准胡牌」必须完整可见，不能被面板裁掉', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  await page.evaluate(() => window.__shipingMahjongForceWin());
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
+  await page.waitForTimeout(200);
+  const info = await page.evaluate(() => {
+    const t = document.getElementById('result-title');
+    const sheet = document.querySelector('#result-modal .result-sheet');
+    const tr = t.getBoundingClientRect();
+    const sr = sheet.getBoundingClientRect();
+    const cs = getComputedStyle(sheet);
+    return {
+      text: t.textContent.trim(),
+      // 面板是 overflow:hidden，标题只要跑到面板盒子外面就会被裁
+      aboveSheet: Math.round(sr.top - tr.top),
+      belowSheet: Math.round(tr.bottom - sr.bottom),
+      left: Math.round(tr.left - sr.left), right: Math.round(sr.right - tr.right),
+      overflow: cs.overflow,
+      h: Math.round(tr.height), w: Math.round(tr.width)
+    };
+  });
+  assert.equal(info.text, '标准胡牌');
+  assert.ok(info.aboveSheet <= 0, '标题上沿不能在面板外（那正是之前被裁掉的原因），实际 ' + info.aboveSheet);
+  assert.ok(info.belowSheet <= 0, '标题下沿不能在面板外，实际 ' + info.belowSheet);
+  assert.ok(info.left >= 0 && info.right >= 0, '标题左右也不能出血');
+  assert.ok(info.h >= 28, '整行字的高要够，实际 ' + info.h);
+  await page.close();
+});
+
+test('结算：杠过的分要记在账上（明杠 -2,000 / 暗杠 -4,000）', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  const deltas = await page.evaluate(() => {
+    // 造两次杠：1 号位暗杠、2 号位明杠，然后 0 号位自摸
+    const st = window.__shipingMahjongState();
+    if (!st) return null;
+    st.kongLog = [{ seat: 1, kind: '暗杠', delta: [] }, { seat: 2, kind: '明杠', delta: [] }];
+    window.__shipingMahjongForceWin();
+    const sd = window.__shipingMahjongSettlement();
+    return sd && { deltas: sd.deltas, kong: sd.kongDeltas, kongs: sd.kongs };
+  });
+  assert.ok(deltas, '要能读到结算对象');
+  // 1 号位暗杠（各家 -4,000）+ 2 号位明杠（各家 -2,000）：
+  //   0 号 -6,000；1 号 +12,000 -2,000 = +10,000；2 号 +6,000 -4,000 = +2,000；3 号 -6,000
+  assert.deepEqual(deltas.kong, [-6000, 10000, 2000, -6000], '杠分要按"明杠 2000 / 暗杠 4000 × 3 家"过账');
+  // 再叠上 0 号位自摸：三家各付 4,000，赢家收 12,000
+  assert.deepEqual(deltas.deltas, [6000, 6000, -2000, -10000], '胡牌 + 杠分才是最终盈亏');
+  assert.equal(deltas.deltas.reduce((a, b) => a + b, 0), 0, '杠分不能让四家总和不平');
+
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
+  await page.waitForTimeout(200);
+  const text = await page.evaluate(() => document.getElementById('result-modal').textContent);
+  assert.match(text, /暗杠/, '结算里要写明是暗杠');
+  assert.match(text, /明杠/, '结算里要写明是明杠');
+  assert.match(text, /\+12,000/, '暗杠收 12,000 要出现在账上');
+  await page.close();
+});
+
+test('结算：胡的那张牌上要劈一道闪电，并且响一声雷', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  // 音频要一次真实点击才解锁（autoplay 策略）：点开规则面板（真点击）再程序化关掉
+  await page.click('#rules-open');
+  await page.evaluate(() => { const m = document.getElementById('rules-modal'); if (m) m.classList.add('hidden'); });
+  await page.evaluate(() => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    window.__osc = 0;
+    const raw = AC.prototype.createOscillator;
+    AC.prototype.createOscillator = function () { window.__osc += 1; return raw.call(this); };
+  });
+  await page.evaluate(() => window.__shipingMahjongForceWin());
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
+  await page.waitForFunction(() => !!document.querySelector('.result-bolt'), null, { timeout: 4000 });
+  // 闪电动画第 0 帧是 scaleY(.5)，量尺寸要等它劈下来（约 50ms 后恢复全高）
+  await page.waitForTimeout(250);
+
+  const geo = await page.evaluate(() => {
+    const bolt = document.querySelector('.result-bolt');
+    const tile = document.querySelector('#result-hand .tile-face.winning-tile');
+    const b = bolt.getBoundingClientRect(), t = tile.getBoundingClientRect();
+    const core = bolt.querySelector('.bolt-core');
+    return {
+      hasSvg: !!bolt.querySelector('svg'),
+      coreFill: core ? getComputedStyle(core).fill : null,
+      boltW: Math.round(b.width), boltH: Math.round(b.height),
+      dx: Math.round((b.left + b.width / 2) - (t.left + t.width / 2)),
+      // 闪电尾巴要落在牌上（允许压进牌面）
+      touch: Math.round(b.bottom - t.top),
+      zBolt: getComputedStyle(bolt).zIndex,
+      inModal: bolt.parentElement.id
+    };
+  });
+  assert.equal(geo.hasSvg, true, '闪电得是 SVG 形状，不是一条线');
+  assert.equal(geo.inModal, 'result-modal', '闪电挂在结算层上（放牌里会被 overflow 裁掉）');
+  assert.ok(geo.boltW >= 40 && geo.boltH >= 100, '闪电要有存在感，实际 ' + geo.boltW + 'x' + geo.boltH);
+  assert.ok(Math.abs(geo.dx) <= 2, '闪电必须正对胡的那张牌，偏移 ' + geo.dx);
+  assert.ok(geo.touch >= 0, '闪电尾巴要落到牌面上，实际还差 ' + geo.touch);
+  assert.ok(Number(geo.zBolt) >= 5, '闪电要盖在面板之上');
+
+  const osc = await page.evaluate(() => window.__osc);
+  assert.ok(osc >= 2, '雷声至少要有低频振荡器，实际 ' + osc);
+
+  // 打在牌上还得有反馈：胡的那张要有 struck 光效
+  const struck = await page.evaluate(() => document.querySelectorAll('#result-hand .tile-face.is-struck').length);
+  assert.equal(struck, 1, '胡的那张牌要有被劈到的动效');
+  await page.close();
+});
+
+test('牌墙：四边的砖块数加起来等于真实剩余墩数，摸一张就少一块', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  await page.waitForTimeout(200);
+  const a = await page.evaluate(() => window.__shipingMahjongWall());
+  assert.ok(a, '要能读到牌墙状态');
+  const sum = a.visible.reduce((x, y) => x + y, 0);
+  assert.equal(sum, a.stacks, '四边可见砖块之和必须等于剩余墩数：' + JSON.stringify(a.visible) + ' vs ' + a.stacks);
+  assert.equal(a.stacks * 2 >= a.tiles, true, '墩数 × 2 要覆盖剩余张数');
+  assert.match(a.label, new RegExp('牌墙 ' + a.stacks + ' 墩'), '顶栏显示墩数');
+
+  // 四边都要有牌（42 墩时不可能有一边全空）
+  a.visible.forEach((n, i) => assert.ok(n > 0, '第 ' + i + ' 边不该是空的'));
+
+  const played = await playHumanDiscards(page, 3);
+  await page.waitForTimeout(400);
+  const b = await page.evaluate(() => window.__shipingMahjongWall());
+  assert.ok(played > 0, '得真的打出去几张');
+  assert.ok(b.stacks < a.stacks, '牌墙要变少，' + a.stacks + ' → ' + b.stacks);
+  assert.equal(b.visible.reduce((x, y) => x + y, 0), b.stacks, '变少之后仍然要对得上');
+  await page.close();
+});
+
+test('牌墙：开牌位不再压"开牌"两个字', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  const out = await page.evaluate(() => {
+    const cut = document.querySelector('.wall-strip.cut-wall');
+    if (!cut) return { cut: false };
+    const after = getComputedStyle(cut, '::after');
+    return { cut: true, content: after.content, text: cut.textContent };
+  });
+  assert.equal(out.cut, true, '仍要标出开牌的那一面墙');
+  assert.equal(out.text.trim(), '', '墙里不该再有文字');
+  assert.ok(!/开牌/.test(out.content || ''), '伪元素也不能再写"开牌"，实际 ' + out.content);
+  await page.close();
+});
+
+test('立直机皮肤：默认开（木框 + 深绿绒面），设置里关掉立刻回实景桌', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  const on = await page.evaluate(() => ({
+    cls: document.body.classList.contains('skin-riichi'),
+    frameBg: getComputedStyle(document.querySelector('.table-frame')).backgroundImage,
+    feltBg: getComputedStyle(document.querySelector('.felt')).backgroundImage,
+    bodyBg: getComputedStyle(document.body).backgroundImage,
+    checked: document.getElementById('setting-riichi').checked
+  }));
+  assert.equal(on.cls, true, '皮肤默认要开');
+  assert.match(on.frameBg, /gradient/, '桌框要有木纹渐变');
+  assert.match(on.feltBg, /gradient/, '绒面要有深绿渐变');
+  assert.ok(!/mahjong-table-bg/.test(on.bodyBg), '机台模式下不该再铺实景照片：' + on.bodyBg.slice(0, 80));
+  assert.equal(on.checked, true, '设置面板的开关要同步');
+
+  await page.evaluate(() => {
+    document.getElementById('rules-open').click();
+    document.getElementById('setting-riichi').click();
+    document.getElementById('rules-close').click();
+  });
+  await page.waitForTimeout(150);
+  const off = await page.evaluate(() => ({
+    cls: document.body.classList.contains('skin-riichi'),
+    frameBg: getComputedStyle(document.querySelector('.table-frame')).backgroundImage,
+    stored: localStorage.getItem('shiping-mahjong-skin-v1'),
+    checked: document.getElementById('setting-riichi').checked
+  }));
+  assert.equal(off.cls, false, '关掉后类名要移除');
+  assert.equal(off.frameBg, 'none', '关掉后桌框回到透明（实景桌）');
+  assert.equal(off.stored, 'off', '偏好要记住，下次进来还是关着的');
+  assert.equal(off.checked, false, '开关状态要同步');
+
+  // 刷新页面验证偏好真的持久化
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(() => document.body.classList.contains('skin-riichi')), false, '刷新后仍是关着的');
+
+  // 再开回来，确认双向都能切
+  await page.evaluate(() => {
+    document.getElementById('rules-open').click();
+    document.getElementById('setting-riichi').click();
+    document.getElementById('rules-close').click();
+  });
+  await page.waitForTimeout(150);
+  assert.equal(await page.evaluate(() => document.body.classList.contains('skin-riichi')), true, '再点一次要能开回来');
+  assert.deepEqual(page.__errors, [], '皮肤切换不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});

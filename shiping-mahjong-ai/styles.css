@@ -296,30 +296,34 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   box-shadow:inset 0 1px 2px #fff8,0 2px 2px #00150caa,0 4px 0 #175c39!important;
 }
 
-/* Four two-layer walls with a visible dice-cut marker */
-.wall-north,.wall-south{
-  display:block!important;width:min(55%,760px);height:20px;left:50%;
-  transform:translateX(-50%);border-radius:4px;
-  background:repeating-linear-gradient(90deg,#72c858 0 29px,#2c873e 30px 32px,#a5e47e 33px 35px);
-  border:1px solid #205d30;box-shadow:inset 0 2px 2px #e0ffc1,0 3px 4px #00170eaa;
+/* 牌墙：四面围成一圈的"牌盒"，里面一格一格码着 17 墩。
+   位置与尺寸沿用第 10 节的环状布局（north/south 横贯两侧、west/east 竖贯两端），
+   这里只把容器改成 flex、把背景换成深色牌盒，砖块交给 JS 生成的 .ws。
+   选择器要带 .table-frame 前缀，否则压不过第 10 节 `.wall-strip{display:block!important}`。 */
+.table-screen .table-frame .wall-strip{
+  display:flex!important;gap:2px;padding:2px;overflow:hidden;
+  background:none!important;border:0!important;box-shadow:none!important;
 }
-.wall-north{top:15.5%}
-.wall-south{bottom:18%;opacity:.94}
-.wall-west,.wall-east{
-  display:block!important;width:20px;height:42%;top:28%;
-  border-radius:4px;background:repeating-linear-gradient(180deg,#72c858 0 29px,#2c873e 30px 32px,#a5e47e 33px 35px);
-  border:1px solid #205d30;box-shadow:inset 0 2px 2px #e0ffc1,0 3px 4px #00170eaa;
+.table-screen .wall-north,.table-screen .wall-south{
+  flex-direction:row!important;align-items:stretch!important;justify-content:center!important;
 }
-.wall-west{left:12%}.wall-east{right:12%}
-.wall-strip.cut-wall{filter:drop-shadow(0 0 7px #ffe29b) drop-shadow(0 0 3px #fff)}
-.wall-strip.cut-wall:after{
-  content:"开牌";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  background:linear-gradient(#ffdf91,#bb7e31);color:#4d2c13;border:1px solid #fff0bd;
-  font-size:9px;font-weight:900;padding:2px 5px;border-radius:9px;white-space:nowrap;
-  box-shadow:0 1px 4px #00140c;
+.table-screen .wall-west,.table-screen .wall-east{
+  flex-direction:column!important;align-items:stretch!important;justify-content:center!important;
 }
-.wall-north.cut-wall:after,.wall-south.cut-wall:after{top:-10px}
-.wall-west.cut-wall:after,.wall-east.cut-wall:after{left:-12px;top:50%}
+.wall-strip .ws{
+  flex:0 0 auto;min-width:0;min-height:0;border-radius:2px;pointer-events:none;
+  background:linear-gradient(180deg,#9ceb84,#55c44c 40%,#2b9038 74%,#1b6a2b);
+  box-shadow:inset 0 1px 0 #dcffc4,inset 0 -1px 0 #0c4520,0 1px 2px #00170e99;
+  transition:opacity .18s;
+}
+.wall-strip .ws.is-gone{display:none}
+.wall-north .ws,.wall-south .ws{width:calc((100% - 32px)/17);height:auto}
+.wall-west .ws,.wall-east .ws{height:calc((100% - 32px)/17);width:auto;background:linear-gradient(90deg,#9ceb84,#55c44c 40%,#2b9038 74%,#1b6a2b)}
+/* 开牌位只留一圈金色高光，不再压"开牌"两个字——牌墙上挂字既挡牌又看不清 */
+.wall-strip.cut-wall .ws:first-child{
+  background:linear-gradient(180deg,#fff3c4,#f0bc50 55%,#b47a22);
+  box-shadow:0 0 8px #ffe9a8cc,inset 0 1px 0 #fffbe6;
+}
 
 /* Dice animation overlay */
 .dice-overlay{
@@ -1864,12 +1868,20 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 
 /* ---------------- 8. 结算：平胡 ---------------- */
 .table-result-layer{background:rgba(4,10,8,.55)!important;backdrop-filter:blur(2px)!important;align-items:center!important;justify-content:center!important;padding:10px}
-.result-sheet{position:relative;width:min(880px,96%);max-height:96%;overflow:auto;border-radius:14px;padding:34px 14px 12px;
+.result-sheet{position:relative;width:min(880px,96%);max-height:96%;overflow:auto;border-radius:14px;padding:12px 14px 12px;
   background:linear-gradient(170deg,rgba(46,32,86,.97),rgba(26,20,58,.98) 46%,rgba(16,14,42,.99));
   border:1px solid #b79cff55;box-shadow:0 18px 50px #000a,inset 0 0 0 1px #ffffff14}
-.result-sheet-title{position:absolute;left:50%;top:-14px;transform:translateX(-50%);min-width:150px;text-align:center;
-  padding:5px 26px 6px;border-radius:8px;font-size:16px;font-weight:900;letter-spacing:.18em;color:#7a3a06;
-  background:linear-gradient(180deg,#ffe9a8,#f0b93c 62%,#d99a1c);border:1px solid #fff6d4;box-shadow:0 4px 12px #0008}
+/* 标题以前是 top:-14px 的"外挂飘带"，而结算面板为了自适应加了 overflow:hidden，
+   于是飘带上半截被整个裁掉——玩家看到的就是"标准胡牌只露下半截"。
+   现在把它放回面板内部当标题栏：位置在内，就不再受裁剪影响。 */
+.result-sheet-title{
+  position:relative;left:auto;top:auto;transform:none;
+  display:block;width:max-content;min-width:132px;max-width:calc(100% - 76px);
+  margin:0 auto 8px;text-align:center;white-space:nowrap;
+  padding:5px 24px 6px;border-radius:8px;font-size:16px;font-weight:900;
+  letter-spacing:.14em;text-indent:.14em;color:#7a3a06;
+  background:linear-gradient(180deg,#ffe9a8,#f0b93c 62%,#d99a1c);border:1px solid #fff6d4;
+  box-shadow:0 4px 12px #0008,inset 0 1px 0 #fffbe6}
 .result-sheet-close{position:absolute;right:8px;top:8px;width:30px;height:30px;border-radius:50%;border:2px solid #ffb08a;
   background:radial-gradient(circle at 36% 30%,#ff9a70,#d94a2a);color:#fff;font-size:17px;font-weight:900;line-height:1}
 .result-hand-row{display:flex;justify-content:center;gap:3px;flex-wrap:wrap;padding:2px 6px 10px}
@@ -2370,7 +2382,7 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 .result-meld-group .tile-face{width:calc(var(--rw) * .92)!important;height:calc(var(--rw) * 1.28)!important}
 
 /* 紧凑模式：只收留白与字号，不动结构 */
-.result-sheet.is-tight{padding-top:24px}
+.result-sheet.is-tight{padding-top:8px}
 .result-sheet.is-tight .result-players{gap:5px}
 .result-sheet.is-tight .rs-head{gap:4px}
 .result-sheet.is-tight .rs-face{width:26px;height:26px;font-size:11px}
@@ -2391,7 +2403,7 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 }
 @media (max-width:520px){
   .result-players{grid-template-columns:1fr 1fr!important;gap:4px!important}
-  .result-sheet{padding:22px 6px 6px!important}
+  .result-sheet{padding:8px 6px 6px!important}
   .result-sheet-title{font-size:12px;min-width:110px;padding:3px 14px}
   .result-self:before{font-size:26px}
 }
@@ -2430,7 +2442,7 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   .result-rankbar{margin:4px 0 2px}
   .result-actions .btn-cyan,.result-actions .btn-green-solid,
   .result-actions .btn-orange{height:32px!important;font-size:12px!important;min-width:84px!important}
-  .result-sheet-title{font-size:12px;padding:2px 16px;top:-11px}
+  .result-sheet-title{font-size:12px;padding:2px 16px;margin-bottom:5px}
   .rs-face{width:24px;height:24px;font-size:10px}
   .rs-name{font-size:10px}
   .rs-total{font-size:14px}
@@ -2532,4 +2544,98 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 @media (prefers-reduced-motion:reduce){
   .coin-pop{animation:none;opacity:1;transform:translate(-50%,-30px)}
   .wallet-item b.is-bump{animation:none}
+}
+
+/* =====================================================================
+   18. 胡牌闪电（v0.10.0）
+
+   胡的那张牌从头上一道雷劈下来：白光炸一下 → 闪电抖两下 → 散掉，
+   同时播一声雷（js/ui.js 的 thunder()，白噪声 + 低频）。
+   闪电与闪光挂在结算层上按坐标定位，不放牌里——`.result-hand-row` 是
+   overflow:hidden，贴牌的伪元素会被裁掉半截。
+   ===================================================================== */
+.result-bolt{
+  position:absolute;z-index:6;pointer-events:none;
+  width:56px;height:150px;
+  transform:translate(-50%,-100%);transform-origin:50% 100%;
+  filter:drop-shadow(0 0 6px #d8f7ff) drop-shadow(0 0 18px #4cc6ff);
+  animation:boltStrike .78s ease-out both;
+}
+.result-bolt svg{width:100%;height:100%;display:block;overflow:visible}
+.result-bolt .bolt-halo{fill:none;stroke:#39c8ff;stroke-width:13;stroke-linejoin:round;stroke-linecap:round;opacity:.36}
+.result-bolt .bolt-glow{fill:none;stroke:#a9ecff;stroke-width:5;stroke-linejoin:round;stroke-linecap:round;opacity:.85}
+.result-bolt .bolt-core{fill:#ffffff;stroke:#d8f7ff;stroke-width:.8;stroke-linejoin:round}
+.result-bolt .bolt-fork{fill:none;stroke:#bfefff;stroke-width:2.2;stroke-linecap:round;opacity:.75}
+.result-bolt.is-still{animation:none;opacity:.95}
+@keyframes boltStrike{
+  0%{opacity:0;transform:translate(-50%,-100%) scaleY(.5)}
+  6%{opacity:1;transform:translate(-50%,-100%) scaleY(1)}
+  13%{opacity:0}
+  21%{opacity:.92}
+  31%{opacity:.12}
+  42%{opacity:1}
+  58%{opacity:.32}
+  72%{opacity:.88}
+  100%{opacity:0;transform:translate(-50%,-100%) scaleY(1)}
+}
+.result-flash{
+  position:absolute;inset:0;z-index:5;pointer-events:none;opacity:0;
+  background:radial-gradient(58% 54% at 50% 26%,#eaf9ffdd,#8fdcff66 34%,transparent 68%);
+  animation:resultFlash .55s ease-out both;
+}
+.result-flash.is-still{animation:none;opacity:0}
+@keyframes resultFlash{
+  0%{opacity:0}
+  5%{opacity:.9}
+  22%{opacity:.2}
+  38%{opacity:.6}
+  70%{opacity:.08}
+  100%{opacity:0}
+}
+#result-hand .tile-face.is-struck{animation:tileStruck 1s ease-out both}
+@keyframes tileStruck{
+  0%,100%{filter:none;transform:none}
+  5%{filter:brightness(2.3) saturate(.45);transform:translateY(-4px) scale(1.08)}
+  20%{filter:brightness(1.15);transform:translateY(0) scale(1)}
+  30%{filter:brightness(1.8) saturate(.6)}
+  46%{filter:none;transform:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .result-bolt,.result-flash,#result-hand .tile-face.is-struck{animation:none}
+  .result-bolt{opacity:.95}
+  .result-flash{opacity:0}
+}
+
+/* =====================================================================
+   19. 立直麻将机皮肤（v0.10.0）
+
+   牌面与牌背本来就是 FluffyStuff 的立直 SVG（assets/mahjong/，
+   见 ASSET-NOTICE.md），所以这一节不再动牌，只换「机台」氛围：
+     · 背景从实景照片（mahjong-table-bg.svg）换成 90 年代机台房的深绿；
+     · 桌框换回胡桃木 + 圆角——牌桌是台面，不是整个房间；
+     · 绒面换回经典深绿 + 金圈内衬。
+   开关在「规则设置 → 立直牌面」，body 上的 .skin-riichi 即时生效，
+   存 localStorage（shiping-mahjong-skin-v1），默认开；关掉立刻回实景桌。
+   ===================================================================== */
+body.skin-riichi{
+  background:#06281a!important;
+  background-image:linear-gradient(180deg,#0d5c38,#06281a 55%,#03251a)!important;
+}
+.skin-riichi .table-frame{
+  padding:12px;border-radius:26px;
+  background:linear-gradient(135deg,#bd8850,#70421f 30%,#dda65d 55%,#75421f 78%,#d2a16b);
+  box-shadow:0 10px 32px #0009,inset 0 0 0 2px #f1cb8966,inset 0 0 0 6px #68401f;
+}
+.skin-riichi .felt{
+  border-radius:18px;
+  background:radial-gradient(ellipse at 50% 46%,#0f8a4e 0%,#0a7444 48%,#075b39 76%,#03452c 100%);
+  box-shadow:inset 0 0 0 2px #f3d28b4d,inset 0 0 48px #00281899;
+}
+.skin-riichi .hand-panel{
+  background:linear-gradient(180deg,#052c20d9,#03150fe8);
+  border-color:#c8a35c73;
+}
+@media (max-width:900px){
+  .skin-riichi .table-frame{padding:6px;border-radius:20px}
+  .skin-riichi .felt{border-radius:14px}
 }

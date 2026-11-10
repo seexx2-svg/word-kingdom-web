@@ -43,6 +43,39 @@ test('computeRound：谁起手都不影响分数（没有庄家）', () => {
   assert.equal(asOther.multiplier, 1);
 });
 
+test('computeRound：杠分——明杠三家各出 2,000、暗杠各出 4,000，胡牌时一起进账', () => {
+  const base = { type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3, balances: [50000, 50000, 50000, 50000] };
+  // 2 号位明杠一次：其余三家各付 2000，杠家收 6000
+  const ming = A.computeRound(Object.assign({}, base, { kongs: [{ seat: 2, kind: '明杠' }] }));
+  assert.deepEqual(ming.kongDeltas, [-2000, -2000, 6000, -2000], '明杠：三家各 -2,000');
+  assert.equal(ming.kongs.length, 1);
+  assert.equal(ming.kongs[0].per, 2000);
+  assert.equal(ming.kongs[0].total, 6000);
+  // 胡牌本身不变，杠分叠在上面
+  assert.deepEqual(ming.deltas, [6000, -4000, 4000, -6000], '胡牌 8000 里挖掉 2 号位的杠分');
+  assert.equal(ming.deltas.reduce((a, b) => a + b, 0), 0, '加了杠分仍然是零和');
+
+  const an = A.computeRound(Object.assign({}, base, { kongs: [{ seat: 1, kind: '暗杠' }] }));
+  assert.deepEqual(an.kongDeltas, [-4000, 12000, -4000, -4000], '暗杠：三家各 -4,000');
+  assert.equal(an.kongs[0].per, 4000);
+  assert.equal(an.kongs[0].total, 12000);
+
+  // 补杠按明杠算
+  const bu = A.computeRound(Object.assign({}, base, { kongs: [{ seat: 0, kind: '补杠' }] }));
+  assert.equal(bu.kongs[0].per, 2000, '补杠 = 明杠价');
+});
+
+test('computeRound：荒牌也照收杠分，不会因为没人胡就吞掉', () => {
+  const r = A.computeRound({
+    type: 'draw', baseBet: 2000, balances: [50000, 50000, 50000, 50000],
+    kongs: [{ seat: 3, kind: '暗杠' }, { seat: 3, kind: '明杠' }]
+  });
+  assert.equal(r.multiplier, 0, '荒牌没有胡牌倍率');
+  assert.deepEqual(r.deltas, [-6000, -6000, -6000, 18000], '暗杠 4000 + 明杠 2000，三家各出 6000');
+  assert.deepEqual(r.reasons, ['杠分', '杠分', '杠分', '杠']);
+  assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0);
+});
+
 test('computeRound：点炮者余额不足时只扣到 0，赢家拿不到不存在的钱', () => {
   const r = A.computeRound({
     type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3,

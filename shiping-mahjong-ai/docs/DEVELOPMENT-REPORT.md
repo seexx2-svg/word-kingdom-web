@@ -691,6 +691,15 @@ npm run test:cloud      8 条全通过
 4. 结算浮层回归：`display === 'none'` + `elementFromPoint` 命中手牌；
 5. 1440×900 与 844×390 的 `.lobby` 都必须是 `flex-direction: row`、品牌名 `text-align: left`。
 
+## 五点七、v0.10.0：标题裁切 / 杠分 / 闪电 / 真牌墙 / 立直机皮肤
+
+1. **「标准胡牌」被裁半截**：结算标题是 `position:absolute; top:-14px` 挂在面板外沿——`overflow:hidden` 的面板直接把它上半截吃掉。改成标题在文档流里（`margin:0 auto -14px` 占位），三处 `padding-top`（基础 34 / `is-tight` 24 / 横屏 22）联动降到 8px。教训：**绝对定位的"挂牌"永远会被 overflow:hidden 咬**，要么放进文档流，要么给面板留 padding。
+2. **杠分**：内核 `scoreKong` 早就记了 `kongLog`（明杠/暗杠/补杠），但结算只用段位分没管银币。现在 `computeRound` 接 `kongs`：`per = baseBet × {明:1, 补:1, 暗:2}`，三家各付 per。胡牌时"杠分先过账再付胡牌钱"（`have = 余额 + 杠分`），荒牌也照收杠分。结算面板逐条列「暗杠 +12,000」。单测钉死零和。
+3. **闪电**：白光炸屏（radial-gradient 一闪）→ SVG 闪电抖三下 → 胡牌张 `is-struck` 高亮，配雷声（白噪声炸响 + 滚雷尾巴 + 58/38Hz 低频）。坑有两个：`.result-hand-row` 是 `overflow:hidden`，贴牌的伪元素被裁半截 → 闪电挂结算层按坐标定位；SVG 里 `filter:blur` 在非等比拉伸时露方框 → 改用三层描边当光晕。
+4. **牌墙**：原来西东两面是"贴图绿条"、北南干脆 `display:none`。现在 JS 按剩余牌生成 17 墩/面的 `.ws` 砖块，摸牌时从开牌位的对面开始收——四边可见砖块之和 = `ceil(剩余牌/2)`。`!important` 又立功又埋雷：第 10 节 `display:block!important` 压住新规则，最后用 `.table-screen` 前缀提高权重才生效。
+5. **立直机皮肤**：发现牌面/牌背**从一开始就是 FluffyStuff 立直 SVG**（`assets/mahjong/`，见 ASSET-NOTICE.md，公有领域），所以第 6 条需求只差"机台氛围"：`body.skin-riichi` 把实景照片背景换成深绿机台房、桌框换回胡桃木、绒面换回经典深绿金圈。设置面板加「立直牌面」开关，即时生效、`localStorage` 记忆，关掉就是原来的实景桌——正好满足"不行就回滚"。中间试过下载 PNG 版牌面做换肤，发现是重复造轮子（被 `!important` 压成死代码）后删除。
+6. 测试：`npm test` 120 / `test:browser` 55 / `test:cloud` 8。
+
 ## 六、试玩方式
 
 1. **本地跑**（推荐，功能完整）：
