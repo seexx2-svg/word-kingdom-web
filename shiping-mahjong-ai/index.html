@@ -176,6 +176,11 @@
       </div>
     </div>
 
+    <button class="lobby-free" id="lobby-free" type="button" aria-label="免费领取银币">
+      <svg class="ico" aria-hidden="true"><use href="#i-coin"/></svg>
+      <span class="lf-text"><b>免费领银币</b><i id="lobby-free-count">今日 10/10</i></span>
+    </button>
+
     <button class="sound-toggle lobby-sound" id="lobby-sound" type="button" aria-pressed="true">声音 开</button>
   </header>
   <div class="account-menu hidden" id="account-menu" role="menu" aria-label="账号">
@@ -303,14 +308,14 @@
 
         <div class="dice-overlay hidden" id="dice-overlay" aria-live="polite">
           <div class="dice-card">
-            <span class="dice-eyebrow">掷骰定庄</span>
-            <h2>掷骰定庄 · 决定开牌位置</h2>
+            <span class="dice-eyebrow">掷骰定起手</span>
+            <h2>掷骰定起手 · 决定谁先摸牌</h2>
             <div class="dice-pair">
               <div class="dice-cube" id="dice-one" aria-label="第一颗骰子"></div>
               <div class="dice-cube" id="dice-two" aria-label="第二颗骰子"></div>
             </div>
             <div class="dice-outcome" id="dice-outcome">正在掷骰…</div>
-            <div class="dice-subtitle" id="dice-subtitle">骰子点数将决定庄家和开牌墙位</div>
+            <div class="dice-subtitle" id="dice-subtitle">骰子点数决定谁先摸牌与开牌墙位</div>
           </div>
         </div>
 
@@ -325,7 +330,7 @@
                 <span class="seat-score" id="score-1">0</span>
               </div>
             </div>
-            <span class="dealer-badge">庄</span>
+            <span class="dealer-badge">起</span>
             <span class="seat-turn" id="turn-1"></span>
           </div>
           <div class="opponent-hand" id="back-1"></div>
@@ -343,7 +348,7 @@
               </div>
             </div>
             <div class="pcard-rank"><i class="rank-chip" id="rank-3">中士</i></div>
-            <span class="dealer-badge">庄</span>
+            <span class="dealer-badge">起</span>
             <span class="seat-turn" id="turn-3"></span>
           </div>
           <div class="opponent-hand vertical-back" id="back-3"></div>
@@ -361,7 +366,7 @@
                 <span class="seat-score" id="score-2">0</span>
               </div>
             </div>
-            <span class="dealer-badge">庄</span>
+            <span class="dealer-badge">起</span>
             <span class="seat-turn" id="turn-2"></span>
           </div>
           <div class="opponent-hand vertical-back" id="back-2"></div>
@@ -378,7 +383,7 @@
             <div class="hud-bet" id="hud-bet">底注:2000</div>
             <div class="discard-callout hidden" id="discard-callout" aria-live="polite"></div>
             <div class="hud-caption"><span id="round-label">第 1 局</span><i></i><span id="turn-label">轮到你出牌</span></div>
-            <div class="center-footer"><span class="dealer-chip" id="dealer-chip">庄</span><span id="dealer-label">南家坐庄</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
+            <div class="center-footer"><span class="dealer-chip" id="dealer-chip">起</span><span id="dealer-label">南家起手</span><span class="center-dot">•</span><span id="last-action">洗牌完成</span></div>
           </div>
           <div class="discard-zone" id="discard-zone">
             <div class="discard-stack discard-north" id="discards-1"></div>
@@ -396,7 +401,7 @@
             <b class="pcard-name" id="seat-name-0">小双州黯</b>
             <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-0">5,000</b></span>
             <span class="seat-score" id="score-0">0</span>
-            <span class="dealer-badge">庄</span>
+            <span class="dealer-badge">起</span>
             <span class="seat-turn" id="turn-0"></span>
             <i class="rank-chip self" id="rank-0">新秀一阶</i>
           </div>

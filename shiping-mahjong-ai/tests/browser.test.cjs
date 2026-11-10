@@ -388,11 +388,15 @@ test('手牌 hover 不位移：鼠标停在下沿也能点中同一张牌', asyn
   assert.match(String(hit.cls), /tile-face/, '命中的元素必须仍是手牌牌面');
   assert.match(String(hit.cls), /playable/, '命中的牌必须仍处于可点状态');
 
-  // 真实点击必须生效：出牌成功
-  const before = (await snap(page)).discards.reduce((a, b) => a + b, 0);
+  // 真实点击必须生效：这一手要真的打出去。
+  // 注意不能只看牌河张数 —— 打出去的牌可能立刻被下家吃/碰走（牌河会减一张），
+  // 所以用「牌河 + 副露 + 轮次」三个信号里的任意一个来判断这手有没有落地。
+  const progress = (s) => s.discards.reduce((a, b) => a + b, 0) + s.melds.reduce((a, b) => a + b, 0);
+  const before = await snap(page);
   await page.mouse.click(box.x, box.bottom - 2);
   await page.waitForTimeout(260);
-  const after = (await snap(page)).discards.reduce((a, b) => a + b, 0);
-  assert.ok(after > before, '在牌面下沿点击必须能真的打出去');
+  const after = await snap(page);
+  const moved = progress(after) > progress(before) || after.current !== before.current || after.phase !== before.phase;
+  assert.ok(moved, '在牌面下沿点击必须能真的打出去：' + JSON.stringify({ before: { d: before.discards, m: before.melds, c: before.current }, after: { d: after.discards, m: after.melds, c: after.current } }));
   await page.close();
 });

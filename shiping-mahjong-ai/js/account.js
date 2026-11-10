@@ -77,17 +77,17 @@
   }
 
   /* ---------------- 结算：银币与段位分 ----------------
-   * 与截图对齐：
-   *   底注 2000、平胡 1 倍、赢家坐庄 2 倍 → 合计 2 倍 → 每张牌桌单位 = 4000
-   *   普通输家 -4000；点炮者 -8000；赢家收实际扣到的总和
-   *   点炮者余额不足时只扣到 0（截图中 7672 余额 → 只扣 7672，并标记「破产」）
+   * 石屏麻将没有庄家，也就没有庄家翻倍：一局只有「底分 × 1 倍」这一个单位。
+   *   底注 2000 → 单位 2000
+   *   普通输家 -2000；点炮者 -4000；自摸三家各 -4000；赢家收实际扣到的总和
+   *   点炮者余额不足时只扣到 0，并标记「破产」
+   * 胡牌的那一家由谁起手（骰子点数决定）不影响分数，只影响谁先摸牌。
    */
   function computeRound(opts) {
     const o = opts || {};
     const type = o.type || 'draw';
     const baseBet = Number(o.baseBet) || HALLS[0].baseBet;
-    const dealerWin = !!o.dealerWin;
-    const multiplier = type === 'draw' ? 0 : (dealerWin ? 2 : 1);
+    const multiplier = type === 'draw' ? 0 : 1;
     const unit = baseBet * multiplier;
     const deltas = [0, 0, 0, 0];
     const reasons = ['', '', '', ''];
@@ -118,7 +118,7 @@
     return { type, baseBet, multiplier, unit, deltas, reasons, total, busted };
   }
 
-  /** 段位分变化：赢家 +7×倍数，点炮 -3×倍数，其余 -2×倍数（截图 2 倍时 +14 / -6 / -4） */
+  /** 段位分变化：赢家 +7，点炮 -3，其余 -2（无庄家，所以没有倍率） */
   function computeRankDelta(settlement) {
     const out = [0, 0, 0, 0];
     if (!settlement || settlement.type === 'draw' || !settlement.multiplier) return out;
@@ -129,6 +129,61 @@
       else if (settlement.deltas[s] < 0) out[s] = -2 * m;
     }
     return out;
+  }
+
+  /* ---------------- 每日福利：登录礼 + 免费银币 ----------------
+   * 用户要的是：每天登录先给 4,000，另外每天还能点 10 次「免费领银币」，每次 4,000。
+   * 首日不发登录礼 —— 那天的 4,000 见面礼就是这个位置的钱，不能重复发。
+   * 所有计数都按「自然日」存，跨天自动清零（不靠定时器，靠 dayKey 比对）。
+   */
+  const DAILY_LOGIN_COINS = 4000;
+  const FREE_CLAIM_TIMES = 10;
+  const FREE_CLAIM_COINS = 4000;
+
+  function dailyState(account, today) {
+    const acc = normalizeAccount(account);
+    const day = dayKey(today);
+    const seen = !!acc.daily;                       // 以前进过大厅（有存档日期）
+    const sameDay = seen && acc.daily.day === day;
+    const used = sameDay ? Math.max(0, Number(acc.daily.free) || 0) : 0;
+    return {
+      day,
+      firstEver: !seen,                             // 首次进大厅：只盖章，不发钱
+      sameDay,
+      loginTaken: sameDay ? !!acc.daily.login : false,
+      freeUsed: Math.min(used, FREE_CLAIM_TIMES),
+      freeLeft: Math.max(0, FREE_CLAIM_TIMES - used),
+      times: FREE_CLAIM_TIMES,
+      loginCoins: DAILY_LOGIN_COINS,
+      freeCoins: FREE_CLAIM_COINS
+    };
+  }
+
+  /** 每日登录礼。首日只记日子（见面礼已经发过），之后每天第一次进大厅发一次 */
+  function claimDailyLogin(store, account, today) {
+    const acc = normalizeAccount(account);
+    const st = dailyState(acc, today);
+    if (st.loginTaken) return { ok: false, code: 'taken', error: '今天已经领过登录礼了', state: st };
+    if (st.firstEver) {
+      acc.daily = { day: st.day, login: true, free: 0 };
+      update(store, acc);
+      return { ok: false, code: 'first-day', error: '首日见面礼已含登录礼', state: dailyState(acc, today), account: acc };
+    }
+    acc.daily = { day: st.day, login: true, free: st.sameDay ? st.freeUsed : 0 };
+    acc.coins += DAILY_LOGIN_COINS;
+    update(store, acc);
+    return { ok: true, coins: DAILY_LOGIN_COINS, state: dailyState(acc, today), account: acc };
+  }
+
+  /** 免费领银币：每天 10 次，每次 4,000 */
+  function claimFreeCoins(store, account, today) {
+    const acc = normalizeAccount(account);
+    const st = dailyState(acc, today);
+    if (st.freeLeft <= 0) return { ok: false, code: 'empty', error: '今天的免费银币领完了，明天再来', state: st };
+    acc.daily = { day: st.day, login: st.loginTaken, free: st.freeUsed + 1 };
+    acc.coins += FREE_CLAIM_COINS;
+    update(store, acc);
+    return { ok: true, coins: FREE_CLAIM_COINS, state: dailyState(acc, today), account: acc };
   }
 
   /* ---------------- 签到 / 回归好礼 ---------------- */
@@ -220,6 +275,7 @@
       stats: { rounds: 0, wins: 0, selfDraw: 0, discardWin: 0, draws: 0, kongs: 0 },
       signin: { claimed: [], lastDay: '', streak: 0, streakClaimed: 0 },
       back: { claimed: [] },
+      daily: null,
       pendingReward: null
     };
   }
@@ -234,6 +290,9 @@
       stats: Object.assign(base.stats, a.stats || {}),
       signin: Object.assign(base.signin, a.signin || {}),
       back: Object.assign(base.back, a.back || {}),
+      daily: (a.daily && typeof a.daily === 'object')
+        ? { day: String(a.daily.day || ''), login: !!a.daily.login, free: Math.max(0, Number(a.daily.free) || 0) }
+        : null,
       prevSeason: Object.assign(base.prevSeason, a.prevSeason || {})
     });
   }
@@ -422,6 +481,7 @@
 
   return {
     SEASON, RANKS, INACTIVE_RANK, HALLS, SIGNIN_DAYS, SIGNIN_COINS, SIGNIN_STREAK_GOLD,
+    DAILY_LOGIN_COINS, FREE_CLAIM_TIMES, FREE_CLAIM_COINS,
     START_COINS, START_GOLD,
     ACCOUNT_MIN, ACCOUNT_MAX, PASSWORD_MIN, PASSWORD_MAX, PHONE_RE,
     checkAccount, checkPassword,
@@ -431,6 +491,7 @@
     loadAccounts, saveAccounts, findByAccount, register, login, update,
     session, setSession, currentAccount, applyRound,
     dayKey, shiftDay, signinState, claimSignin, backState, claimBack,
+    dailyState, claimDailyLogin, claimFreeCoins,
     inheritState, confirmInherit, fmtNum, fmtSigned
   };
 });

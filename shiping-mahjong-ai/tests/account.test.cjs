@@ -20,34 +20,43 @@ function memStore() {
 
 /* ---------------- 结算 ---------------- */
 
-test('computeRound：中级场 8000 底分 · 庄家点炮 · 赢家实收全部', () => {
-  // 截图：桌上四人 13500 / 16500 / 15090 / 7672，庄家（3 号位）点炮
+test('computeRound：底注 2000 点炮 1 倍 —— 点炮者付两份，其余各一份', () => {
   const r = A.computeRound({
-    type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3, dealerWin: true,
+    type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3,
     balances: [13500, 16500, 15090, 7672]
   });
-  assert.equal(r.multiplier, 2, '庄家参与时倍率为 2');
-  assert.equal(r.unit, 4000);
-  assert.deepEqual(r.deltas, [15672, -4000, -4000, -7672], '点炮只扣点炮者，且扣到 0 为止');
-  assert.equal(r.total, 15672, '赢家实收 = 三家实际扣款之和');
+  assert.equal(r.multiplier, 1, '石屏麻将没有庄家，也就没有翻倍');
+  assert.equal(r.unit, 2000);
+  assert.deepEqual(r.deltas, [8000, -2000, -2000, -4000], '点炮者 2 份，其余各 1 份');
+  assert.equal(r.total, 8000, '赢家实收 = 三家实际扣款之和');
   assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0, '四家总和恒为 0');
-  assert.deepEqual(r.busted, [false, false, false, true], '庄家余额不足被截断');
+  assert.deepEqual(r.busted, [false, false, false, false], '余额都够付');
   assert.deepEqual(r.reasons, ['胡', '输', '输', '点炮']);
 });
 
-test('computeRound：非庄家点炮，倍率为 1，只扣点炮者一份', () => {
+test('computeRound：谁起手都不影响分数（没有庄家）', () => {
+  const base = { type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3, balances: [50000, 50000, 50000, 50000] };
+  const asDealer = A.computeRound(Object.assign({}, base, { dealerWin: true }));
+  const asOther = A.computeRound(Object.assign({}, base, { dealerWin: false }));
+  assert.deepEqual(asDealer.deltas, asOther.deltas, '有庄无庄必须一模一样');
+  assert.equal(asDealer.multiplier, 1);
+  assert.equal(asOther.multiplier, 1);
+});
+
+test('computeRound：点炮者余额不足时只扣到 0，赢家拿不到不存在的钱', () => {
   const r = A.computeRound({
-    type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 2, dealerWin: false,
-    balances: [100000, 100000, 100000, 100000]
+    type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3,
+    balances: [13500, 16500, 15090, 1000]
   });
-  assert.equal(r.multiplier, 1);
-  // 点炮者付双倍（2×2000），另外两家各付一倍 —— 与截图里「非点炮者也 -4000」一致
-  assert.deepEqual(r.deltas, [8000, -2000, -4000, -2000]);
+  // 点炮者该付 4000，只有 1000 → 扣 1000 并标记破产
+  assert.deepEqual(r.deltas, [5000, -2000, -2000, -1000]);
+  assert.deepEqual(r.busted, [false, false, false, true]);
+  assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0);
 });
 
 test('computeRound：自摸三家各付 unit×2，赢家收总和', () => {
   const r = A.computeRound({
-    type: 'self', baseBet: 8000, winnerSeat: 1, dealerWin: false,
+    type: 'self', baseBet: 8000, winnerSeat: 1,
     balances: [100000, 100000, 100000, 100000]
   });
   assert.equal(r.unit, 8000);
@@ -62,27 +71,27 @@ test('computeRound：流局所有人不动', () => {
   assert.equal(r.total, 0);
 });
 
-test('computeRound：余额不足以支付时只扣到 0，赢家拿不到不存在的钱', () => {
+test('computeRound：自摸时余额不足的人只扣到 0', () => {
   const r = A.computeRound({
-    type: 'self', baseBet: 8000, winnerSeat: 0, dealerWin: true,
+    type: 'self', baseBet: 8000, winnerSeat: 0,
     balances: [50000, 5000, 99999, 16000]
   });
-  // unit = 8000*2 = 16000，自摸每家应付 32000；1 号位只有 5000，3 号位只有 16000
-  assert.deepEqual(r.deltas, [53000, -5000, -32000, -16000]);
-  assert.deepEqual(r.busted, [false, true, false, true]);
+  // 每家应付 16000；1 号位只有 5000
+  assert.deepEqual(r.deltas, [37000, -5000, -16000, -16000]);
+  assert.deepEqual(r.busted, [false, true, false, false]);
   assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0);
 });
 
-test('computeRankDelta：赢家 +7×倍率，点炮 -3×倍率，其余 -2×倍率', () => {
+test('computeRankDelta：赢家 +7，点炮 -3，其余 -2', () => {
   const sd = A.computeRound({
-    type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3, dealerWin: true,
+    type: 'discard', baseBet: 2000, winnerSeat: 0, discarderSeat: 3,
     balances: [13500, 16500, 15090, 7672]
   });
-  assert.deepEqual(A.computeRankDelta(sd), [14, -4, -4, -6]);
+  assert.deepEqual(A.computeRankDelta(sd), [7, -2, -2, -3]);
 });
 
-test('computeRankDelta：自摸时三家都按 -2×倍率扣', () => {
-  const sd = A.computeRound({ type: 'self', baseBet: 8000, winnerSeat: 2, dealerWin: false, balances: [1e6, 1e6, 1e6, 1e6] });
+test('computeRankDelta：自摸时三家都 -2', () => {
+  const sd = A.computeRound({ type: 'self', baseBet: 8000, winnerSeat: 2, balances: [1e6, 1e6, 1e6, 1e6] });
   assert.deepEqual(A.computeRankDelta(sd), [-2, -2, 7, -2]);
 });
 
@@ -247,6 +256,61 @@ test('applyRound：流局只计局数', () => {
   assert.equal(after.rankPoints, 0);
   assert.equal(after.stats.draws, 1);
   assert.equal(after.stats.wins, 0);
+});
+
+/* ---------------- 每日福利：登录礼 + 免费领银币 ---------------- */
+
+test('每日登录礼：首日不发（见面礼就是首日那笔），之后每天进大厅发 4,000', () => {
+  const st = memStore();
+  let acc = A.register(st, { account: 'daily1', password: 'abcd' }).account;
+  const d1 = new Date('2026-11-06T09:00:00');
+  const d2 = new Date('2026-11-07T09:00:00');
+
+  assert.equal(A.dailyState(acc, d1).firstEver, true, '第一次进大厅');
+  const first = A.claimDailyLogin(st, acc, d1);
+  assert.equal(first.ok, false);
+  assert.equal(first.code, 'first-day');
+  assert.equal(first.account.coins, 5000, '首日不加钱，只把日子记下来');
+  acc = first.account;
+
+  const again = A.claimDailyLogin(st, acc, d1);
+  assert.equal(again.code, 'taken', '同一天不会再发一次');
+
+  const second = A.claimDailyLogin(st, acc, d2);
+  assert.equal(second.ok, true);
+  assert.equal(second.coins, 4000);
+  assert.equal(second.account.coins, 9000);
+
+  const third = A.claimDailyLogin(st, second.account, d2);
+  assert.equal(third.code, 'taken');
+});
+
+test('免费领银币：每天 10 次、每次 4,000，第 11 次拒绝；跨天自动重置', () => {
+  const st = memStore();
+  let acc = A.register(st, { account: 'daily2', password: 'abcd' }).account;
+  const today = new Date('2026-11-06T12:00:00');
+  A.claimDailyLogin(st, acc, today);            // 首日盖章
+  acc = A.loadAccounts(st)[0];
+
+  for (let i = 1; i <= A.FREE_CLAIM_TIMES; i++) {
+    const r = A.claimFreeCoins(st, acc, today);
+    assert.equal(r.ok, true, '第 ' + i + ' 次应该能领');
+    assert.equal(r.coins, 4000);
+    assert.equal(r.state.freeUsed, i);
+    acc = r.account;
+  }
+  assert.equal(acc.coins, 5000 + 4000 * 10, '10 次共 40,000');
+
+  const over = A.claimFreeCoins(st, acc, today);
+  assert.equal(over.ok, false);
+  assert.equal(over.code, 'empty');
+  assert.equal(over.state.freeLeft, 0);
+
+  const tomorrow = new Date('2026-11-07T00:10:00');
+  const fresh = A.claimFreeCoins(st, acc, tomorrow);
+  assert.equal(fresh.ok, true, '跨天次数清零');
+  assert.equal(fresh.state.freeUsed, 1);
+  assert.equal(fresh.state.freeLeft, 9);
 });
 
 /* ---------------- 每日签到 ---------------- */

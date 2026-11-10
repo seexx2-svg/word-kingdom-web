@@ -202,15 +202,14 @@ test('结算：赢家实收 / 三家赔付 / 段位分，并写回账号', async
   await page.waitForFunction(() => !document.querySelector('#result-modal').classList.contains('hidden'), null, { timeout: 8000 });
 
   const s = await shell(page);
-  const d = await page.evaluate(() => window.__shipingMahjongDebug());
-  // 赢家坐庄时倍率翻倍；庄家由掷骰决定，所以按实际庄家推算期望值
-  const m = d.dealer === 0 ? 2 : 1;
+  // 石屏麻将没有庄家：不管谁起手，单位恒为底分，没有翻倍
+  const m = 1;
   const unit = 2000 * m;
   assert.equal(s.settlement.type, 'self');
-  assert.equal(s.settlement.multiplier, m, '庄家参与时倍率为 2');
-  assert.equal(s.settlement.unit, unit, '初级场底分 2,000 × 倍率');
+  assert.equal(s.settlement.multiplier, m, '没有庄家，倍率恒为 1');
+  assert.equal(s.settlement.unit, unit, '初级场底分 2,000 × 1 倍');
   assert.deepEqual(s.settlement.deltas, [unit * 6, -unit * 2, -unit * 2, -unit * 2], '自摸三家各付双倍');
-  assert.deepEqual(s.rankDelta, [7 * m, -2 * m, -2 * m, -2 * m], '赢家 +7×倍率，其余 -2×倍率');
+  assert.deepEqual(s.rankDelta, [7 * m, -2 * m, -2 * m, -2 * m], '赢家 +7，其余 -2');
   assert.equal(s.account.coins, before + unit * 6, '银币必须写回账号');
   assert.equal(s.account.rankPoints, 7 * m);
   assert.equal(s.account.stats.wins, 1);
@@ -292,6 +291,107 @@ test('回归好礼：7 格，按顺序领取并累加银币', async () => {
   });
   await page.waitForTimeout(200);
   assert.ok((await shell(page)).account.coins >= before, '领取后银币不应减少');
+  await page.close();
+});
+
+test('大厅免费领银币：点一次 +4,000，计数 1/10，同一天不会超发', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_free_1', 'abcd1234', '领钱测试', true);
+    const ok = document.getElementById('reward-ok');
+    if (ok) ok.click();
+    window.__shipingMahjongSkipSeason();
+  });
+  await page.waitForTimeout(300);
+
+  assert.equal(await exists(page, '#lobby-free'), true, '大厅要有免费领银币入口');
+  assert.match(await text(page, '#lobby-free-count'), /0\/10/, '初始 10 次一次没领');
+  const before = (await shell(page)).account.coins;
+
+  await page.click('#lobby-free');
+  await page.waitForTimeout(150);
+  const after = await shell(page);
+  assert.equal(after.account.coins, before + 4000, '领一次 +4,000');
+  assert.match(await text(page, '#home-coins'), new RegExp((before + 4000).toLocaleString('en-US')), '顶栏银币要刷新');
+  assert.match(await text(page, '#lobby-free-count'), /1\/10/);
+
+  await page.click('#lobby-free');
+  await page.waitForTimeout(150);
+  assert.equal((await shell(page)).account.coins, before + 8000, '第二次再 +4,000');
+  assert.match(await text(page, '#lobby-free-count'), /2\/10/);
+  assert.deepEqual(page.__errors, [], '领钱不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('结算：显示赢家完整牌型（含副露），且面板不出滚动条', async () => {
+  for (const vp of [{ width: 1440, height: 900 }, { width: 844, height: 390 }, { width: 390, height: 844 }]) {
+    const page = await freshPage(vp);
+    await page.evaluate(async () => {
+      await window.__shipingMahjongRegister('shell_res_' + Date.now().toString(36), 'abcd1234', '结算测试', true);
+      window.__shipingMahjongSkipSeason();
+      window.__shipingMahjongStartTable('novice');
+      window.__shipingMahjongSetSpeed(0);
+    });
+    await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 25000 });
+    await page.evaluate(() => window.__shipingMahjongForceWin());
+    await page.waitForFunction(() => !document.querySelector('#result-modal').classList.contains('hidden'));
+    await page.waitForTimeout(320);
+
+    const fit = await page.evaluate(() => {
+      const sheet = document.querySelector('#result-modal .result-sheet');
+      const row = document.querySelector('#result-hand');
+      const actions = document.querySelector('.result-actions').getBoundingClientRect();
+      return {
+        meldGroups: row.querySelectorAll('.result-meld-group').length,
+        tiles: row.querySelectorAll('.tile-face').length,
+        overflowY: sheet.scrollHeight - sheet.clientHeight,
+        scrollCls: sheet.classList.contains('is-scroll'),
+        actionsBottom: Math.round(actions.bottom),
+        vh: window.innerHeight,
+        rowHeight: Math.round(row.getBoundingClientRect().height)
+      };
+    });
+    const tag = vp.width + 'x' + vp.height;
+    assert.ok(fit.meldGroups >= 1, tag + '：副露也要画进完整牌型');
+    assert.ok(fit.tiles >= 10, tag + '：手牌 + 副露应完整，实际 ' + fit.tiles);
+    assert.ok(fit.overflowY <= 2, tag + '：面板不该有可滚动内容，超出 ' + fit.overflowY);
+    assert.equal(fit.scrollCls, false, tag + '：正常情况下不该启用滚动兜底');
+    assert.ok(fit.actionsBottom <= fit.vh, tag + '：底部按钮必须在视口内');
+    assert.deepEqual(page.__errors, [], tag + ' 不应报错：' + page.__errors.join(' | '));
+    await page.close();
+  }
+});
+
+test('被吃/碰走的牌仍在牌河里，但盖着遮罩；副露里接进来的那张同样遮罩', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_mask_1', 'abcd1234', '遮罩测试', true);
+    window.__shipingMahjongSkipSeason();
+    window.__shipingMahjongStartTable('novice');
+    window.__shipingMahjongSetSpeed(0);
+  });
+  await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 25000 });
+  await page.evaluate(() => window.__shipingMahjongForceChi());
+  await page.waitForTimeout(320);
+
+  const info = await page.evaluate(() => {
+    const ghosts = Array.from(document.querySelectorAll('.claimed-ghost'));
+    const called = Array.from(document.querySelectorAll('.meld-called-tile'));
+    const style = ghosts[0] ? getComputedStyle(ghosts[0], '::after') : null;
+    return {
+      ghosts: ghosts.length,
+      ghostBoxes: ghosts.map((e) => e.parentElement.id),
+      called: called.length,
+      maskBg: style ? style.backgroundImage.slice(0, 60) : '',
+      ghostFilter: ghosts[0] ? getComputedStyle(ghosts[0]).filter : ''
+    };
+  });
+  assert.ok(info.ghosts >= 1, '牌河里要保留被接走的牌');
+  assert.ok(info.ghostBoxes.every((id) => /^discards-[0-3]$/.test(id)), '幽灵牌必须画在牌河里：' + info.ghostBoxes);
+  assert.ok(info.called >= 1, '副露里接进来的那张要有标记');
+  assert.match(info.maskBg, /gradient/, '要真的盖一层遮罩');
+  assert.match(info.ghostFilter, /brightness/, '遮罩要让牌明显变暗');
+  assert.deepEqual(page.__errors, [], '不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
 

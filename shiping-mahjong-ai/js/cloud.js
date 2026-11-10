@@ -199,6 +199,9 @@
       stats: Object.assign({}, DEFAULT_STATS, row.stats || {}),
       signin: Object.assign({}, DEFAULT_SIGNIN, row.signin || {}),
       back: Object.assign({ claimed: [] }, row.back_gift || {}),
+      daily: (row.daily && typeof row.daily === 'object')
+        ? { day: String(row.daily.day || ''), login: !!row.daily.login, free: Math.max(0, Number(row.daily.free) || 0) }
+        : null,
       welcomeGranted: !!row.welcome_granted
     };
   }
@@ -217,6 +220,7 @@
       prev_season: p.prevSeason || DEFAULT_PREV_SEASON,
       signin: p.signin || DEFAULT_SIGNIN,
       back_gift: p.back || { claimed: [] },
+      daily: p.daily || null,
       stats: p.stats || DEFAULT_STATS,
       welcome_granted: !!p.welcomeGranted,
       updated_at: new Date().toISOString()

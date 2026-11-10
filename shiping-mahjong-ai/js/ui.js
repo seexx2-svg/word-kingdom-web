@@ -26,7 +26,12 @@
   /* 品牌名只在这里改：index.html 里的 [data-brand] 占位由 applyBrand() 统一填充 */
   const BRAND = { title: '石屏麻将 · 四人牌桌', html: '石屏<span>·</span>麻将' };
 
-  const SPEED = { claim: 700, discard: 780, kong: 620 };  const HEARTBEAT_MS = 900;
+  /* 电脑的节奏。之前 700~780ms 一手，四家连着走像快进，看不清谁打了什么；
+   * 现在放慢到 1.3~1.8 秒，并带 ±12% 的抖动，避免整齐得像机器。
+   * 上限必须低于 STALL_MS（2600），否则心跳会把「正在思考」误判成任务丢了。 */
+  const SPEED = { claim: 1200, discard: 1600, kong: 950 };
+  const SPEED_JITTER = 0.12;
+  const HEARTBEAT_MS = 900;
   const STALL_MS = 2600;
   const MAX_RETRY = 8;
 
@@ -350,7 +355,8 @@
     renderSig = sig;
     $('wall-count').textContent = '牌墙 ' + state.wall.length;
     $('hand-count').textContent = state.hands[0].length + ' 张';
-    $('dealer-label').textContent = `${NAMES[state.dealer]} 坐庄 · ${state.wallBreak.side}墙第${state.wallBreak.stack}墩`;
+    // 石屏麻将没有庄家：骰子只决定从谁那里起手，不翻倍、不连庄
+    $('dealer-label').textContent = `${NAMES[state.dealer]} 起手 · ${state.wallBreak.side}墙第${state.wallBreak.stack}墩`;
     $('round-label').textContent = '第 ' + roundNo + ' 局';
     markDealer(state.dealer);
     markWallBreak(state.wallBreak.side);
@@ -437,20 +443,47 @@
       box.appendChild(group);
     });
   }
+  /** 从各家副露反推：这一家的牌河里有哪几张被吃 / 碰 / 明杠取走了。
+   *  内核结算时会把那张牌从牌河删掉（保住"牌河张数"的语义），但牌桌上玩家
+   *  仍然看得见——所以这里把它按时间顺序补回来，界面上盖一层遮罩表示"已被接走"。
+   *  暗杠、补杠不从牌河拿牌，不参与。 */
+  function claimedFrom(seat) {
+    const out = [];
+    for (let p = 0; p < 4; p++) {
+      if (p === seat) continue;
+      state.melds[p].forEach((m) => {
+        if (m.concealed || m.added) return;
+        if (m.from !== seat) return;
+        if (m.calledTile === undefined || m.calledTile === null) return;
+        out.push({ tile: m.calledTile, by: p, kind: m.type });
+      });
+    }
+    return out;
+  }
   function renderDiscards(s) {
     const box = $('discards-' + s);
     if (!box) return;
     const pile = state.discards[s];
-    box.classList.toggle('is-dense', pile.length > 18);
-    if (box.children.length === pile.length) {
-      // 只更新最新一张的高亮，避免重排造成闪烁
+    const ghosts = claimedFrom(s);
+    const sig = pile.join(',') + '|' + ghosts.map((g) => g.tile + g.by).join(',');
+    box.classList.toggle('is-dense', pile.length + ghosts.length > 18);
+    if (box.dataset.sig === sig) {
+      // 只在牌没变的情况下更新最新一张的高亮，避免重排造成闪烁
       Array.from(box.children).forEach((el, i) => el.classList.toggle('latest-discard', i === pile.length - 1));
       return;
     }
+    box.dataset.sig = sig;
     box.innerHTML = '';
     pile.forEach((id, index) => {
       const el = tileEl(id, index === pile.length - 1 ? 'latest-discard' : '');
       if (index === pile.length - 1) el.title = SEATS[s] + ' ' + NAMES[s] + ' 打出 ' + C.tileLabel(id);
+      box.appendChild(el);
+    });
+    ghosts.forEach((g) => {
+      const el = tileEl(g.tile, 'claimed-ghost');
+      el.dataset.claimedBy = String(g.by);
+      el.title = C.tileLabel(g.tile) + ' 被' + SEATS[g.by] + ' ' + NAMES[g.by]
+        + ({ chi: ' 吃', peng: ' 碰', gang: ' 杠' }[g.kind] || ' 接') + '走';
       box.appendChild(el);
     });
   }
@@ -512,6 +545,7 @@
     }
   }
 
+  /** 标出「起手家」：石屏麻将没有庄家，这个标记只说明谁先摸牌，不参与计分 */
   function markDealer(dealer) {
     for (let i = 0; i < 4; i++) {
       const seat = $('seat-' + i);
@@ -523,7 +557,8 @@
       if (i === dealer && !mark) {
         mark = document.createElement('span');
         mark.className = 'dealer-mark';
-        mark.textContent = '庄';
+        mark.textContent = '起';
+        mark.title = '起手家（骰子点数决定，不影响算分）';
         top.appendChild(mark);
       } else if (i !== dealer && mark) mark.remove();
     }
@@ -738,7 +773,8 @@
     if (aiTask && aiTask.epoch === epoch && aiTask.seat === a.seat && aiTask.kind === a.kind) return;
     if (aiTask) { clearTimeout(aiTask.id); aiTask = null; }
     const base = a.kind === 'claim' ? SPEED.claim : SPEED.discard;
-    const delay = Math.max(0, Math.round(base * speedScale));
+    const jitter = 1 + (Math.random() * 2 - 1) * SPEED_JITTER;
+    const delay = Math.max(0, Math.round(base * jitter * speedScale));
     const myEpoch = epoch;
     const seat = a.seat, kind = a.kind;
     const id = setTimeout(() => runAi(seat, kind, myEpoch), delay);
@@ -843,7 +879,6 @@
       baseBet: hall.baseBet,
       winnerSeat: winner,
       discarderSeat: r.type === 'discard' ? r.from : -1,
-      dealerWin: winner >= 0 && winner === state.dealer,
       balances: balances.slice()
     });
     for (let i = 0; i < 4; i++) balances[i] = Math.max(0, balances[i] + settlement.deltas[i]);
@@ -939,8 +974,7 @@
     if (settlement && settlement.multiplier) {
       if (isWinner) {
         addLine(resultTitle(r), '1 倍');
-        if (winner === state.dealer) addLine('庄家', '2 倍');
-        addLine('合计', settlement.multiplier + ' 倍');
+        addLine('底注', A.fmtNum(settlement.unit));
       } else {
         addLine(settlement.reasons[seat] || '输', settlement.multiplier + ' 倍');
       }
@@ -954,6 +988,52 @@
     return card;
   }
 
+  /** 赢家的完整牌型：副露（成组）+ 手里的牌，一行排开。
+   *  以前只画手里的牌，碰过杠过的都看不见，等于"不完整"。 */
+  function paintResultHand(handRow, r, winner) {
+    handRow.innerHTML = '';
+    const melds = (winner >= 0 && r.melds) ? r.melds : [];
+    melds.forEach((m) => {
+      const group = document.createElement('span');
+      group.className = 'result-meld-group';
+      m.tiles.forEach((id) => group.appendChild(tileEl(id, 'result-meld-tile')));
+      handRow.appendChild(group);
+    });
+    const hand = r.winningHand || (winner >= 0 ? state.hands[winner] : []);
+    hand.forEach((id, i) => {
+      const isWin = winner >= 0 && i === hand.length - 1 && id === r.winningTile;
+      handRow.appendChild(tileEl(id, isWin ? 'winning-tile' : ''));
+    });
+    handRow.classList.toggle('hidden', !hand.length && !melds.length);
+  }
+
+  /** 结算层自适应：牌多就按可用宽度缩，还高就收边距，最后等比缩小——绝不出现滚动条 */
+  function fitResult() {
+    const modal = $('result-modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    const sheet = modal.querySelector('.result-sheet');
+    const row = $('result-hand');
+    if (!sheet || !row) return;
+    sheet.classList.remove('is-tight');
+    sheet.classList.remove('is-scroll');
+    sheet.style.transform = '';
+    // 1) 一行放得下：按"牌数 × 间距"倒算每张牌的宽度（副露分组另占间隔）
+    const tiles = row.querySelectorAll('.tile-face').length;
+    const groups = row.querySelectorAll('.result-meld-group').length;
+    const box = row.clientWidth - 8;
+    if (tiles && box > 0) {
+      const gap = 3;
+      const gaps = Math.max(0, tiles - 1) * gap + groups * 12;
+      const w = Math.floor((box - gaps) / tiles);
+      row.style.setProperty('--rw', Math.max(12, Math.min(34, w)) + 'px');
+    }
+    // 2) 高度还超，收边距与字号
+    if (sheet.scrollHeight > sheet.clientHeight + 2) sheet.classList.add('is-tight');
+    // 3) 极端情况（又窄又矮，比如 320×480）才允许滚动，但滚动条本身藏起来：
+    //    内容不能被裁掉，也不该出现那根"拉条"
+    sheet.classList.toggle('is-scroll', sheet.scrollHeight > sheet.clientHeight + 2);
+  }
+
   function showResult() {
     if (!state || !state.result) return;
     const r = state.result;
@@ -961,13 +1041,9 @@
     const winner = Number.isInteger(r.seat) ? r.seat : -1;
 
     const handRow = $('result-hand');
-    handRow.innerHTML = '';
-    const hand = r.winningHand || (winner >= 0 ? state.hands[winner] : []);
-    hand.forEach((id, i) => {
-      const isWin = winner >= 0 && i === hand.length - 1 && id === r.winningTile;
-      handRow.appendChild(tileEl(id, isWin ? 'winning-tile' : ''));
-    });
-    handRow.classList.toggle('hidden', !hand.length);
+    handRow.classList.remove('is-wrap');
+    handRow.style.removeProperty('--rw');
+    paintResultHand(handRow, r, winner);
 
     const selfBox = $('result-self');
     selfBox.innerHTML = '';
@@ -1007,6 +1083,7 @@
 
     $('result-modal').classList.remove('hidden');
     document.querySelector('.table-frame').classList.add('round-over');
+    requestAnimationFrame(() => fitResult());
   }
   function hideResult() {
     $('result-modal').classList.add('hidden');
@@ -1067,7 +1144,7 @@
       const overlay = $('dice-overlay');
       overlay.classList.remove('hidden');
       $('dice-outcome').textContent = '掷骰中…';
-      $('dice-subtitle').textContent = '点数决定庄家与开牌位置';
+      $('dice-subtitle').textContent = '点数决定谁先摸牌与开牌位置';
       buildCube('dice-one'); buildCube('dice-two');
       ['dice-one', 'dice-two'].forEach((id) => {
         const host = $(id);
@@ -1100,7 +1177,7 @@
           }, 200);
         });
         const setup = C.diceSetup(dice);
-        $('dice-outcome').textContent = `点数 ${dice[0]} + ${dice[1]} = ${setup.sum} · ${NAMES[setup.dealer]} 坐庄`;
+        $('dice-outcome').textContent = `点数 ${dice[0]} + ${dice[1]} = ${setup.sum} · ${NAMES[setup.dealer]} 起手`;
         $('dice-subtitle').textContent = `从${setup.wallSide}墙第 ${setup.wallStack} 墩开牌`;
         playSound('zhuang');
         lastDice = { dice: dice.slice(), sum: setup.sum, dealer: setup.dealer, wallSide: setup.wallSide, wallStack: setup.wallStack };
@@ -1512,6 +1589,7 @@
     const nickInput = $('lobby-nick');
     if (nickInput && !nickInput.value) nickInput.value = Net ? Net.nick() : account.nick;
     paintLobbyMode();
+    paintFreeButton();
   }
 
   /* ---------------- 大厅：只留「快速匹配」和「快速人机」 ---------------- */
@@ -1552,6 +1630,53 @@
     if (input) input.value = n;
     lobbyStatus('系统给你取了个名字：' + n);
     playSound('ui');
+  }
+
+  /* ---------------- 每日福利：登录礼 + 免费领银币 ---------------- */
+  function paintFreeButton() {
+    const btn = $('lobby-free');
+    const count = $('lobby-free-count');
+    if (!btn) return;
+    if (!account) {
+      if (count) count.textContent = '登录后可领';
+      btn.classList.remove('is-empty');
+      return;
+    }
+    const st = A.dailyState(account, new Date());
+    if (count) count.textContent = '今日 ' + st.freeUsed + '/' + st.times;
+    btn.classList.toggle('is-empty', st.freeLeft <= 0);
+    btn.title = st.freeLeft > 0
+      ? `今天还能领 ${st.freeLeft} 次，每次 ${A.fmtNum(A.FREE_CLAIM_COINS)} 银币`
+      : '今天的免费银币领完了，明天 0 点重置';
+  }
+  function doFreeCoins() {
+    if (!account) { openLogin({ tip: '领银币要先登录；游客进度只存本机。' }); return; }
+    const res = A.claimFreeCoins(store(), account, new Date());
+    if (!res.ok) {
+      lobbyStatus(res.error, 'warn');
+      toast(res.error);
+      paintFreeButton();
+      return;
+    }
+    account = res.account || account;
+    renderHome();
+    persist({ silent: true });
+    playSound('coin');
+    toast('+' + A.fmtNum(res.coins) + ' 银币（今日还剩 ' + res.state.freeLeft + ' 次）');
+    lobbyStatus('领到 ' + A.fmtNum(res.coins) + ' 银币，今日还剩 ' + res.state.freeLeft + ' 次');
+  }
+  /** 每日登录礼：进大厅时自动发一次，首日不发（见面礼就是首日那笔） */
+  function grantDailyLogin() {
+    if (!account) return;
+    const res = A.claimDailyLogin(store(), account, new Date());
+    if (res.account) account = res.account;
+    if (!res.ok) { paintFreeButton(); return; }
+    renderHome();
+    persist({ silent: true });
+    playSound('coin');
+    toast('每日登录礼 +' + A.fmtNum(res.coins) + ' 银币');
+    lobbyStatus('每日登录礼 +' + A.fmtNum(res.coins) + ' 银币');
+    paintFreeButton();
   }
 
   function resetSeatNames() {
@@ -1663,6 +1788,7 @@
     refreshAccount();
     renderHome();
     showScreen('home');
+    grantDailyLogin();      // 每天第一次回到大厅发登录礼（首日由见面礼覆盖）
   }
 
   /* ---------------- 场次 ---------------- */
@@ -1962,6 +2088,7 @@
       doQuickMatch().catch((err) => lobbyStatus((err && err.message) || '匹配失败', 'warn'));
     });
     on('lobby-nick-random', 'click', doRandomNick);
+    on('lobby-free', 'click', doFreeCoins);
     on('lobby-nick', 'change', () => {
       const input = $('lobby-nick');
       if (!input || !Net) return;
@@ -2527,6 +2654,9 @@
     const unlockAudio = () => { audioReady = true; if (Sfx) Sfx.unlock(); };
     document.addEventListener('pointerdown', unlockAudio, { once: true });
     document.addEventListener('keydown', unlockAudio, { once: true });
+    // 横竖屏切换时牌面尺寸会变，结算层的自适应要跟着重算
+    window.addEventListener('resize', () => fitResult());
+    window.addEventListener('orientationchange', () => setTimeout(fitResult, 220));
     heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
     startSession().catch((err) => {
       showScreen('splash');

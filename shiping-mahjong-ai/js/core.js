@@ -116,7 +116,7 @@
     return 4;
   }
 
-  /* ---------------- 骰子 / 庄家 / 开牌墙 ---------------- */
+  /* ---------------- 骰子 / 起手家（原称庄家，只决定谁先摸牌） / 开牌墙 ---------------- */
   function diceSetup(dice) {
     const a = Math.max(1, Math.min(6, Number(dice && dice[0]) || 1));
     const b = Math.max(1, Math.min(6, Number(dice && dice[1]) || 1));

@@ -67,8 +67,11 @@ async function launch() {
  * 所以本地跑时 /\.cloud\/ 请求注定被拒。这属于环境边界，不是脚本错误：
  * 单独收进 __cloudNoise，正文断言只看真正的脚本/资源错误。
  * 真实的云端连通性由 tests/cloud-live.cjs 在发布域名上验证。
+ *
+ * 同理，云 SDK 本身是从公共 CDN（jsdelivr）拉的；CDN 抽风时页面会回落到纯本地模式，
+ * 游戏照常能玩。这类 `ERR_CONNECTION_*` 也是环境问题，不该让无关的用例变红。
  */
-const CLOUD_NOISE = /workbuddy\.host\/\.cloud\/|\.cloud\/(auth|database|storage|llm)\//;
+const CLOUD_NOISE = /workbuddy\.host\/\.cloud\/|\.cloud\/(auth|database|storage|llm)\/|@tencent-ai\/workbuddy-cloud-sdk|cdn\.jsdelivr\.net|Failed to load resource: net::ERR_CONNECTION/;
 
 function pushError(errors, text, noise) {
   if (CLOUD_NOISE.test(text)) { noise.push(text); return; }

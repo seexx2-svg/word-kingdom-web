@@ -52,9 +52,9 @@ async function waitForUserTurn(page,timeout=30000){
     assert.equal(diagnostic.tileCount,14,'轮到用户出牌时应有14张牌');
     assert.equal(diagnostic.playableCount,14,'轮到用户时14张手牌都应可点击');
     assert.equal(diagnostic.drawnTileAtRight,true,'新摸的牌必须独立放在手牌最右侧');
-    assert.match(diagnostic.diceOutcome,/坐庄/,'骰子动画后必须公布庄家');
+    assert.match(diagnostic.diceOutcome,/起手/,'骰子动画后必须公布起手家');
     assert.equal(diagnostic.wallCutCount,1,'骰子必须标出唯一的开牌墙');
-    assert.equal(diagnostic.dealerCount,1,'一局必须且只能有一个庄家');
+    assert.equal(diagnostic.dealerCount,1,'一局必须且只能有一个起手家（没有庄家，只决定谁先摸牌）');
     assert.match(diagnostic.bankroll,/100/,'每家开局带入100积分');
     const dieDiagnostics=await page.locator('.dice-cube').evaluateAll(cubes=>cubes.map(c=>({
       faceCount:c.querySelectorAll('.die-face').length,

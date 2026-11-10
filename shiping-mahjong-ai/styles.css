@@ -2283,3 +2283,166 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   .lobby-actions{width:min(330px,38vw);gap:8px}
   .lobby-status{font-size:12px}
 }
+
+/* =====================================================================
+   14. 被接走的牌（v0.8.0）
+
+   牌河里的那张牌被吃 / 碰 / 明杠之后，内核会把它从牌河数组里删掉（"牌河张数"
+   要参与流传判断，不能留脏数据）。但牌桌上它不该凭空消失——玩家需要看见
+   "我刚打的那张被谁要走了"。所以：
+     · 牌河：按副露里记录的 from/calledTile 把它补回来，位置就在牌河末尾；
+     · 副露：被接进来的那一张，用同一套遮罩。
+   两处用同一种视觉语言，读起来就是"这张是从桌上拿的"。
+   ===================================================================== */
+.tile-face.claimed-ghost,
+.tile-face.meld-called-tile{
+  filter:grayscale(.3) brightness(.6)!important;
+  outline:1px dashed rgba(255,214,130,.75)!important;
+  outline-offset:-1px;
+}
+.tile-face.claimed-ghost::after,
+.tile-face.meld-called-tile::after{
+  content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:
+    repeating-linear-gradient(135deg,rgba(3,16,11,.32) 0 2px,rgba(3,16,11,.12) 2px 4px),
+    linear-gradient(180deg,rgba(0,0,0,.1),rgba(0,0,0,.34));
+  box-shadow:inset 0 0 0 1px rgba(255,214,130,.3);
+}
+/* 牌河里的幽灵牌不要抢"最新一张"的光圈 */
+.discard-stack .tile-face.claimed-ghost{animation:none;box-shadow:0 1px 3px #00150f88}
+
+/* =====================================================================
+   15. 结算层：完整牌型 + 自适应（v0.8.0）
+
+   两个毛病一起修：
+     · 以前只画手里的牌，碰过、杠过的牌组根本不显示 —— 看不到"完整的牌"；
+     · 窄屏把四家卡片堆成一列，加上手牌换行，把面板撑出滚动条。
+   现在牌组和手牌排在同一行，宽度由 JS 按容器倒算（--rw），
+   实在放不下才进 is-tight（收边距），最后才允许换行。
+   ===================================================================== */
+.result-sheet{overflow:hidden!important;transform-origin:center center}
+.result-hand-row{
+  --rw: clamp(20px, 2.4vw, 32px);
+  display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;
+  gap:3px;padding:2px 4px 8px;overflow:hidden;
+}
+.result-hand-row.is-wrap{flex-wrap:wrap}
+.result-hand-row .tile-face{
+  width:var(--rw)!important;height:calc(var(--rw) * 1.4)!important;border-radius:4px;
+}
+.result-meld-group{
+  display:inline-flex;align-items:center;gap:1px;padding:1px 2px;border-radius:5px;
+  background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,214,130,.28);
+  margin:0 4px;
+}
+.result-meld-group .tile-face{width:calc(var(--rw) * .92)!important;height:calc(var(--rw) * 1.28)!important}
+
+/* 紧凑模式：只收留白与字号，不动结构 */
+.result-sheet.is-tight{padding-top:24px}
+.result-sheet.is-tight .result-players{gap:5px}
+.result-sheet.is-tight .rs-head{gap:4px}
+.result-sheet.is-tight .rs-face{width:26px;height:26px;font-size:11px}
+.result-sheet.is-tight .rs-name{font-size:11px}
+.result-sheet.is-tight .rs-line{font-size:9px;padding:0 2px}
+.result-sheet.is-tight .rs-total{font-size:15px}
+.result-sheet.is-tight .result-self,.result-sheet.is-tight .result-other{padding:6px}
+.result-sheet.is-tight .result-rankbar{margin:5px 0 3px;padding:4px 8px;font-size:10px}
+.result-sheet.is-tight .result-actions .btn-cyan,
+.result-sheet.is-tight .result-actions .btn-green-solid,
+.result-sheet.is-tight .result-actions .btn-orange{height:34px!important;font-size:12px!important}
+
+/* 窄屏不再把四家堆成一列（那是滚动条的主因），改成两列紧凑排 */
+@media (max-width:900px){
+  .result-players{grid-template-columns:1.05fr 1fr!important;gap:5px!important}
+  .result-sheet{max-height:96%!important}
+  .result-hand-row{padding-bottom:6px}
+}
+@media (max-width:520px){
+  .result-players{grid-template-columns:1fr 1fr!important;gap:4px!important}
+  .result-sheet{padding:22px 6px 6px!important}
+  .result-sheet-title{font-size:12px;min-width:110px;padding:3px 14px}
+  .result-self:before{font-size:26px}
+}
+
+/* 结算层改成"贴着视口"的浮层：以前它挂在牌桌里，牌桌比视口高时下半截会被裁掉
+   （横屏 844×390 尤其明显，按钮直接看不见）。定位改成 fixed 后，
+   不论窗口多矮，面板永远居中在可视区内，配合 JS 的等比缩放就不会有拉条。 */
+#result-modal.table-result-layer{
+  position:fixed!important;inset:0!important;left:0!important;top:0!important;
+  right:0!important;bottom:0!important;width:auto!important;height:auto!important;
+  max-height:none!important;transform:none!important;
+  display:flex!important;align-items:center!important;justify-content:center!important;
+  padding:10px!important;border:0!important;border-radius:0!important;
+  background:rgba(2,16,11,.55)!important;backdrop-filter:blur(2px)!important;z-index:70!important;
+}
+#result-modal .result-sheet{
+  max-height:calc(100vh - 20px)!important;overflow:hidden!important;
+  width:min(880px,100%)!important;
+}
+
+/* 默认不滚动；只有真的塞不下时才滚，而且把滚动条藏掉（内容仍可滑，不出现拉条） */
+.result-sheet.is-scroll{overflow-y:auto!important;scrollbar-width:none;-ms-overflow-style:none}
+.result-sheet.is-scroll::-webkit-scrollbar{width:0;height:0;display:none}
+
+/* 手机横屏横向够宽、竖向很矮：四家卡片排成一行，把高度省出来 */
+@media (orientation:landscape) and (max-height:560px){
+  #result-modal .result-sheet{padding:20px 10px 8px!important}
+  .result-players{grid-template-columns:0.92fr 2.1fr!important;gap:6px!important}
+  .result-rest{grid-template-columns:repeat(3,minmax(0,1fr))!important;grid-auto-rows:auto!important}
+  .result-hand-row{padding-bottom:4px}
+  .result-rankbar{margin:4px 0 2px}
+  .result-actions .btn-cyan,.result-actions .btn-green-solid,
+  .result-actions .btn-orange{height:32px!important;font-size:12px!important;min-width:84px!important}
+  .result-sheet-title{font-size:12px;padding:2px 16px;top:-11px}
+  .rs-face{width:24px;height:24px;font-size:10px}
+  .rs-name{font-size:10px}
+  .rs-total{font-size:14px}
+}
+
+/* 窄屏的结算卡片：头部不挤压（以前昵称被压成一列竖字），次要标签直接让位 */
+@media (max-width:520px){
+  .rs-head{flex-wrap:wrap;gap:3px 4px;padding-left:26px}
+  .result-other .rs-head{padding-left:0}
+  .rs-tag{flex:0 0 auto;font-size:8px;padding:1px 4px}
+  .rs-face{width:22px;height:22px;font-size:10px}
+  .rs-name{font-size:10px;flex:1 1 auto;min-width:0}
+  .result-self:before{font-size:24px}
+  .rs-line{font-size:9px}
+  .rs-total{font-size:14px}
+}
+
+/* =====================================================================
+   16. 大厅「免费领银币」（v0.8.0）
+   每天 10 次、每次 4,000。放在顶栏，金币图标 + 今日剩余次数，
+   领完变成灰色但依然可点（点了会说"明天再来"，不会让人以为坏了）。
+   ===================================================================== */
+.lobby-free{
+  flex:0 0 auto;display:flex;align-items:center;gap:7px;
+  height:38px;padding:0 13px;margin-left:auto;border-radius:19px;
+  border:1px solid #ffd98ecc;
+  background:linear-gradient(180deg,#ffe9b0,#e0ab3f 62%,#b9821f);
+  color:#3d250c;box-shadow:0 3px 10px #0006,inset 0 0 0 1px #fff6d6aa;
+  font-weight:900;letter-spacing:.02em;transition:transform .12s,filter .15s;
+}
+.lobby-free:hover{transform:translateY(-1px);filter:brightness(1.04)}
+.lobby-free:active{transform:translateY(0) scale(.98)}
+.lobby-free .ico{width:18px;height:18px;flex:0 0 auto}
+.lobby-free .lf-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.12}
+.lobby-free .lf-text b{font-size:13px}
+.lobby-free .lf-text i{font-style:normal;font-size:10px;font-weight:700;color:#6b4713;opacity:.9}
+.lobby-free.is-empty{
+  background:linear-gradient(180deg,#6d6a5c,#4a483e);color:#cfc9b6;border-color:#8d8873;box-shadow:none;
+}
+.lobby-free.is-empty .lf-text i{color:#b2ac97}
+
+@media (max-width:900px){
+  .lobby-free{height:34px;padding:0 10px;gap:5px}
+  .lobby-free .lf-text b{font-size:11px}
+  .lobby-free .lf-text i{font-size:9px}
+  .lobby-free .ico{width:15px;height:15px}
+}
+@media (orientation:landscape) and (max-height:560px){
+  .lobby-top{padding:6px 12px 0;gap:8px}
+  .lobby-free{height:32px;padding:0 10px}
+  .lobby-free .lf-text b{font-size:11px}
+}
