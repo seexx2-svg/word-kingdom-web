@@ -397,6 +397,16 @@ signUp requires a verificationToken; run sendOtp + verifyOtp first
 
 数据面是干净的：`mahjong_players` 0 行、`mahjong_rounds` 0 行，测试没有往真库里塞垃圾数据。
 
+发布之后又在**线上域名**上补了一次实测（不是本地）：
+
+```
+status.ready = true          probe = { ok: true, rows: 0, error: null }
+登录弹窗说明 = 「首次登录自动建号。银币、段位与战绩存在云端，换手机也一样。」
+主按钮 verifyDisabled = false    控制台脚本错误 = 0 条
+```
+
+这一步验的是"云端 Origin 与发布域名是否对得上"——对不上时数据面会直接拒（`Current origin is not allowed`），能返回 `rows=0` 就说明白了。
+
 ## 六、试玩方式
 
 1. **本地跑**（推荐，功能完整）：
@@ -437,7 +447,7 @@ signUp requires a verificationToken; run sendOtp + verifyOtp first
 
 ## 八、已知限制
 
-- **线上那张分享链接还是 6 月的旧页面**（没有登录页）。云端 `endpoint` 就是 `shiping-mahjong-ai.app.workbuddy.host`，代码要在那个域名上跑才算"真上线"，在那之前只能本地 `http://127.0.0.1:8080` 试；手机号登录本地能走通，OAuth 授权回跳要落到注册的回调域名，建议发布后再测。
+- **已发布到 `https://shiping-mahjong-ai.app.workbuddy.host/?sharecode=2MS3R37OYC`**（覆盖了 6 月那版），发布后在线上域名实测：`Cloud.status().ready === true`、数据面探针 `rows=0` 无报错、登录弹窗正常、控制台无脚本错误——说明**云端 Origin 与发布域名对得上**。剩下的只有真人收码那一步。
 - **短信与扫码授权未做人工验收**，自动化只证明了通道存在，见 5.17。
 - **游客进度仍存本机**，这是刻意的：游客本来就是"先试试"，不该占云端一行数据。换成手机号登录后，档案会新建一份，游客那份不会迁移过来。
 - **排行榜/天梯是空壳**。`mahjong_rounds` 已经在存明细，但榜单聚合查询与前端展示还没做——现在只有本人的战绩。
