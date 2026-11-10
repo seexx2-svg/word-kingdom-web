@@ -2639,3 +2639,299 @@ body.skin-riichi{
   .skin-riichi .table-frame{padding:6px;border-radius:20px}
   .skin-riichi .felt{border-radius:14px}
 }
+
+/* =====================================================================
+   20. v0.11.0：截图对照改造（最终覆盖层，必须排在第 10 节之后）
+
+   这一节统一收口四件事：
+     · 首页玩法下拉（三个都能选，压在「快速匹配」上方）；
+     · 假 3D 梯形桌：木框 / 金边 / 绿绒面三层 clip-path，只画背景不改布局盒；
+     · 右侧书法体「胡 / 杠 / 碰 / 吃 / 过」+ 吃牌多选项小牌组；
+     · 局前「换桌 / 准备」层。
+   第 10 节带了成片 !important，所以这里的定位一律用更长的选择器 + !important，
+   保证能压过「最终裁决层」而不必回头改历史代码。
+   ===================================================================== */
+
+/* ---------- 20.1 首页：三种玩法做成一个下拉 ----------
+   #lobby-modes 这个 id 是旧三格卡留下的，老规则 .lobby-modes{display:grid} 还挂在
+   同一个元素上，所以这里用 .lobby-variant#lobby-modes 把权重抬起来。 */
+.lobby-variant#lobby-modes{
+  display:flex;align-items:center;justify-content:center;
+  grid-template-columns:none;gap:0;
+  width:min(430px,94vw);min-width:0;
+}
+.variant-pill{
+  width:100%;display:flex;align-items:center;gap:10px;
+  padding:7px 10px;border-radius:14px;
+  border:1px solid #e2c68a8c;
+  background:linear-gradient(180deg,#123f2de8,#062018f2);
+  box-shadow:0 7px 20px #0009,inset 0 1px 0 #ffffff1a;
+}
+.variant-pill label{
+  flex:0 0 auto;white-space:nowrap;
+  font-size:11px;font-weight:800;letter-spacing:.14em;color:#e8cd92;
+}
+.variant-select{
+  flex:1 1 auto;min-width:0;height:36px;
+  padding:0 30px 0 12px;border-radius:9px;
+  border:1px solid #e2c68ab3;
+  font-size:13px;font-weight:800;letter-spacing:.03em;color:#3c2a12;
+  appearance:none;-webkit-appearance:none;cursor:pointer;
+  background-color:#f4e5c4;
+  background-image:
+    linear-gradient(45deg,transparent 50%,#8a5a1c 50%),
+    linear-gradient(135deg,#8a5a1c 50%,transparent 50%),
+    linear-gradient(180deg,#fff8e8,#e6d2a6);
+  background-position:calc(100% - 17px) 16px,calc(100% - 12px) 16px,0 0;
+  background-size:5px 5px,5px 5px,100% 100%;
+  background-repeat:no-repeat;
+  box-shadow:inset 0 1px 0 #fff9,0 2px 5px #0006;
+}
+.variant-select:focus-visible{outline:2px solid #ffd98f;outline-offset:2px}
+.lobby-variant-note{
+  width:min(430px,94vw);margin:0;min-height:0;
+  font-size:11px;line-height:1.5;letter-spacing:.02em;text-align:center;
+  color:#ffce82;text-shadow:0 1px 4px #000a;
+}
+.lobby-variant-note:empty{display:none}
+/* 旧三格卡与锁标彻底退场（DOM 已删，这里是兜底） */
+.mode-card,.mc-lock{display:none!important}
+
+/* 横屏大厅是左右两栏；把下拉单独排成最上面一整行，
+   这样无论 1440×900 电脑还是 844×390 手机横屏，它都在「快速匹配」上方。
+   .lobby 仍保持 flex-direction:row，不破坏「电脑 / 手机横屏同一套布局」。 */
+@media (orientation:landscape){
+  .lobby-variant#lobby-modes{order:0;flex:0 0 100%;width:100%}
+  .lobby-variant-note{order:1;flex:0 0 100%;width:100%}
+  .lobby-hero{order:2}
+  .lobby-actions{order:3}
+  .lobby-status{order:4}
+  .lobby-hint{order:5}
+  .lobby-variant .variant-pill{width:min(430px,94vw)}
+}
+
+/* ---------- 20.2 假 3D：上窄下宽的梯形绒面桌 ----------
+   风景与地面交给 assets/mahjong-room-3d.svg；桌子本身用三层 clip-path 画在
+   .table-frame / .felt 的伪元素上，几何永远跟着实际牌桌盒子走。
+   规则设置里关掉 #setting-3d，body 去掉 .table-3d 就一键回到平面机台。 */
+body.table-3d{
+  background:#0b1c17!important;
+  background-image:linear-gradient(180deg,#00190d05,#00180d18),url("assets/mahjong-room-3d.svg")!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+}
+body.table-3d .app-shell{background:transparent!important}
+/* .table-screen 历史上有一层不透明底色 #0a1b14，会把 body 的风景背景整个盖掉；
+   假 3D 模式下必须让桌外的江景/地面透出来。 */
+body.table-3d .screen.table-screen{background-color:transparent!important}
+body.table-3d .topbar{
+  background:linear-gradient(180deg,#0b241ad9,#0b241a44)!important;
+  border-bottom-color:#eed39b33!important;
+}
+body.table-3d .game-stage{padding:0!important;min-height:0!important}
+body.table-3d .table-frame{
+  padding:0!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important;
+  isolation:isolate;
+}
+/* ::before = 胡桃木外框，::after = 内圈金边，.felt::before = 绿绒面 */
+body.table-3d .table-frame:before,
+body.table-3d .table-frame:after{
+  content:"";position:absolute;inset:0;display:block;pointer-events:none;
+  border:0!important;border-radius:0!important;box-shadow:none!important;
+  inset:0!important;
+}
+body.table-3d .table-frame:before{
+  z-index:0;
+  background:linear-gradient(135deg,#f0c884,#985a2c 22%,#d28c4e 48%,#6f3e22 74%,#3a2419);
+  clip-path:polygon(9% 4%,91% 4%,100% 100%,0 100%);
+}
+body.table-3d .table-frame:after{
+  z-index:1;
+  background:linear-gradient(180deg,#fff0b2,#c28a3e 48%,#71431e);
+  clip-path:polygon(10.2% 6%,89.8% 6%,98.4% 98%,1.6% 98%);
+}
+body.table-3d .felt{
+  z-index:2;overflow:hidden;
+  background:transparent!important;box-shadow:none!important;border-radius:0!important;
+}
+body.table-3d .felt:before{
+  content:"";display:block!important;position:absolute;inset:0!important;z-index:0;pointer-events:none;
+  border:0!important;border-radius:0!important;
+  background:radial-gradient(ellipse at 50% 44%,#148452 0%,#0a7444 46%,#065b39 76%,#033d29 100%);
+  clip-path:polygon(11.5% 8.5%,88.5% 8.5%,96.5% 96%,3.5% 96%);
+  box-shadow:inset 0 0 60px #00281899;
+}
+body.table-3d .felt-sheen{opacity:.07}
+body.table-3d .table-tablemark{opacity:.11!important}
+
+/* ---------- 20.3 牌桌细节：摸牌间距 / 牌河 / 删右侧圆钮 ----------
+   刚摸的那张与前面 13 张留一小段距离（不是旧版的 20px 大缝）；
+   :nth-child(14) 与 .drawn-tile 两条历史规则都用更高权重收口。 */
+.table-screen .hand-panel .hand-tiles .tile-face.drawn-tile{
+  margin-left:clamp(8px,1.1vw,16px)!important;
+}
+/* 牌河只画还留在河里的牌；万一旧渲染残留幽灵牌也不让它占位 */
+.discard-stack .tile-face.claimed-ghost{display:none!important}
+.meld-row .meld-chi .tile-face.meld-called-tile{
+  outline:2px solid #ffcf63!important;outline-offset:-2px;
+  filter:brightness(1.1) drop-shadow(0 0 4px #ffd77e);
+}
+/* 玩家右手边那颗圆形功能钮已按需求删掉；规则设置统一走顶栏 ☰ */
+.table-menu{display:none!important}
+
+/* ---------- 20.4 右侧书法体操作按钮 ----------
+   截图里是右侧一排金色发光的大字，不是圆钮。行动条仍挂在 .hand-panel 上、
+   用 bottom:100%+ 抬到手牌上方，因此不会压住 #hand-tiles（横屏几何测试靠这个）。 */
+.table-screen .hand-panel .action-bar{
+  position:absolute!important;
+  left:auto!important;right:0!important;top:auto!important;
+  transform:none!important;bottom:calc(100% + 14px)!important;
+  display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;
+  align-items:center!important;justify-content:flex-end!important;
+  gap:clamp(4px,.7vw,10px)!important;
+  width:auto!important;max-width:none!important;min-height:0!important;
+  padding:0!important;margin:0!important;
+  background:transparent!important;border:0!important;box-shadow:none!important;
+  z-index:9;pointer-events:auto;
+}
+.table-screen .table-frame.round-over .hand-panel .action-bar{display:none!important}
+.table-screen .hand-panel .action-bar .action-button{
+  width:auto!important;height:auto!important;
+  min-width:clamp(46px,4.6vw,68px)!important;min-height:clamp(46px,4.6vw,68px)!important;
+  padding:2px 7px!important;
+  display:grid!important;place-items:center!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;
+  font-family:"STKaiti","KaiTi","Kaiti SC","楷体","STXingkai","华文行楷","Songti SC",serif!important;
+  font-size:clamp(28px,3.2vw,46px)!important;font-weight:900!important;
+  line-height:1!important;letter-spacing:0!important;
+  -webkit-background-clip:text!important;background-clip:text!important;
+  -webkit-text-fill-color:transparent!important;
+  text-shadow:0 2px 1px #5c2a0599,0 0 10px #ffb43c88,0 0 24px #ff8a1f66;
+  filter:drop-shadow(0 3px 4px #000c);
+  transition:transform .12s ease,filter .12s ease;
+}
+.table-screen .hand-panel .action-bar .action-button:hover{
+  transform:scale(1.1);filter:drop-shadow(0 0 12px #ffc65a) drop-shadow(0 3px 4px #000c);
+}
+.table-screen .hand-panel .action-bar .action-button:active{transform:translateY(3px) scale(.96)}
+/* 五个动作各一档渐变：胡偏红、杠纯金、碰橙金、吃青金、过浅金 */
+.table-screen .hand-panel .action-bar .action-hu{
+  background-image:linear-gradient(180deg,#fff2b0,#ffab3c 40%,#f04422 76%,#9d1b0d)!important}
+.table-screen .hand-panel .action-bar .action-gang{
+  background-image:linear-gradient(180deg,#fff6c8,#ffd35e 42%,#e39a18 78%,#8a4f06)!important}
+.table-screen .hand-panel .action-bar .action-peng{
+  background-image:linear-gradient(180deg,#fff0a8,#ffbe45 42%,#f07b12 78%,#8f3a05)!important}
+.table-screen .hand-panel .action-bar .action-chi{
+  background-image:linear-gradient(180deg,#eaffc0,#a8db63 42%,#4fa83c 78%,#1f5e28)!important}
+.table-screen .hand-panel .action-bar .action-pass{
+  background-image:linear-gradient(180deg,#fffdf0,#ffe9b0 42%,#d9ae62 78%,#8a6a33)!important}
+/* 提示文字收成小胶囊，别把大字按钮挤走 */
+.table-screen .hand-panel .action-bar .action-info,
+.table-screen .hand-panel .action-bar .action-placeholder{
+  flex:0 1 auto;max-width:200px;align-self:center;text-align:right;
+  font-size:10px!important;line-height:1.35;color:#f0dcae!important;
+  background:rgba(3,24,17,.82)!important;
+  border:1px solid #e2c68a55!important;border-radius:10px!important;
+  padding:5px 8px!important;white-space:normal;
+}
+/* 吃牌有多种组合：右侧按 1/2/3 列小牌组，每组三张小牌 */
+.table-screen .hand-panel .action-bar .action-button.chi-option{
+  display:flex!important;flex-direction:column!important;
+  align-items:center!important;justify-content:center!important;
+  gap:3px!important;min-width:0!important;min-height:0!important;
+  padding:5px 7px!important;border:1px solid #ffd27a99!important;border-radius:12px!important;
+  background-image:linear-gradient(180deg,#0e3f2dee,#04201aee)!important;
+  -webkit-background-clip:border-box!important;background-clip:border-box!important;
+  -webkit-text-fill-color:#ffe6ae!important;
+  font-family:inherit!important;font-size:10px!important;
+  text-shadow:none!important;
+  box-shadow:0 4px 14px #000a,inset 0 1px 0 #ffffff22!important;
+}
+.table-screen .hand-panel .action-bar .chi-option-no{
+  font-style:normal;font-size:10px;font-weight:900;line-height:1;
+  min-width:16px;height:16px;display:grid;place-items:center;border-radius:50%;
+  background:linear-gradient(180deg,#ffdf9a,#c78b32);color:#3b2409;
+  box-shadow:0 1px 3px #0008;
+}
+.table-screen .hand-panel .action-bar .chi-option-tiles{display:flex;align-items:center;gap:1px}
+.table-screen .hand-panel .action-bar .chi-option-tiles .mini-tile{
+  width:22px!important;height:30px!important;border-radius:2px!important;
+  background-size:100% 100%!important;
+  box-shadow:0 1px 2px #000a,0 0 0 1px #d8cba6!important;
+}
+
+/* ---------- 20.5 局前等待层：换桌 / 准备 ----------
+   整层 pointer-events:none，只有两颗按钮可点，免得这 2.8 秒挡住手牌与自动流程。 */
+.table-ready{
+  position:absolute;inset:0;z-index:18;display:block;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 46%,rgba(2,32,20,.10),rgba(1,14,10,.60));
+}
+.table-ready.hidden{display:none!important}
+.ready-seat{
+  position:absolute;display:flex;align-items:center;gap:6px;white-space:nowrap;
+  padding:5px 9px;border-radius:30px;
+  background:linear-gradient(100deg,#06271de0,#0a3124c9);
+  border:1px solid #f2d38b66;box-shadow:0 3px 10px #00150ea8;
+  color:#f3e2bc;font-size:11px;
+}
+.ready-seat b{font-size:12px;color:#ffe6b0}
+.ready-seat span{font-size:10px;color:#d5bd87}
+.ready-seat em{font-style:normal;font-size:11px;font-weight:800;color:#f7d894}
+.ready-face{
+  width:34px;height:34px;flex:0 0 34px;border-radius:50%;display:grid;place-items:center;
+  font-style:normal;font-weight:900;font-size:15px;color:#3b2a12;
+  background:radial-gradient(circle at 35% 28%,#ffe6b8,#c99a5a 62%,#8d6431);
+  border:2px solid #ffe0a0;box-shadow:0 2px 6px #0008;
+}
+.ready-north{top:5%;left:50%;transform:translateX(-50%)}
+.ready-west{left:5%;top:40%;transform:translateY(-50%)}
+.ready-east{right:5%;top:40%;transform:translateY(-50%)}
+.ready-south{bottom:24%;left:50%;transform:translateX(-50%)}
+.ready-center{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;pointer-events:none;
+}
+.ready-bet{margin:0;font-size:12px;letter-spacing:.14em;color:#d8c79c;text-shadow:0 1px 4px #000}
+.ready-actions{display:flex;align-items:center;gap:clamp(14px,3vw,34px);pointer-events:auto}
+.ready-btn{
+  min-width:clamp(92px,10vw,148px);height:clamp(42px,6vh,60px);
+  border-radius:999px;border:2px solid #ffd98a;cursor:pointer;pointer-events:auto;
+  font-size:clamp(15px,1.8vw,23px);font-weight:900;letter-spacing:.22em;
+  color:#fff8e2;text-shadow:0 2px 3px #0007;
+  box-shadow:0 5px 0 #0004,0 10px 22px #0007,inset 0 2px 0 #ffffff55;
+}
+.ready-btn.is-switch{background:linear-gradient(180deg,#ffb04a,#e0740b 62%,#a84405)}
+.ready-btn.is-go{background:linear-gradient(180deg,#a6db62,#3f9c2e 62%,#1f6a1c)}
+.ready-btn:active{transform:translateY(3px);box-shadow:0 2px 0 #0004,0 5px 12px #0007,inset 0 2px 0 #ffffff55}
+.ready-tip{margin:0;font-size:10px;color:#c8d6c3;letter-spacing:.04em}
+
+/* ---------- 20.6 窄屏 / 矮横屏收一档 ---------- */
+@media (max-width:900px){
+  .table-screen .hand-panel .action-bar .action-button{
+    font-size:clamp(24px,5.2vw,34px)!important;min-width:40px!important;min-height:40px!important;
+  }
+  .table-screen .hand-panel .action-bar .chi-option-tiles .mini-tile{width:17px!important;height:23px!important}
+  .ready-seat{padding:3px 6px;gap:4px;font-size:9px}
+  .ready-face{width:26px;height:26px;flex-basis:26px;font-size:12px}
+  .ready-seat b{font-size:10px}
+  .ready-seat span,.ready-seat em{font-size:9px}
+  .ready-center{gap:8px}
+}
+@media (max-width:760px) and (orientation:portrait){
+  .ready-west,.ready-east{display:none}
+  .ready-south{bottom:28%}
+}
+@media (orientation:landscape) and (max-height:560px){
+  .table-screen .hand-panel .action-bar{bottom:calc(100% + 8px)!important}
+  .table-screen .hand-panel .action-bar .action-button{
+    font-size:clamp(22px,4vw,30px)!important;min-width:38px!important;min-height:38px!important;
+  }
+  .ready-btn{height:40px;min-width:90px;font-size:15px}
+  .ready-center{gap:6px}
+  .ready-tip{font-size:9px}
+}
+@media (prefers-reduced-motion:reduce){
+  .table-screen .hand-panel .action-bar .action-button{transition:none}
+}

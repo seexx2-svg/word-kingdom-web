@@ -136,21 +136,24 @@ test('computeRankDelta：流局不加不减', () => {
 /* ---------------- 段位 ---------------- */
 
 test('rankOf：阈值命中与越界都落在正确段位', () => {
-  assert.equal(A.rankOf(0).name, '新秀一阶');
-  assert.equal(A.rankOf(419).name, '新秀一阶');
-  assert.equal(A.rankOf(420).name, '新秀二阶');
-  assert.equal(A.rankOf(860).name, '下士');
-  assert.equal(A.rankOf(999999).name, '中将');
-  assert.equal(A.rankOf(-5).name, '新秀一阶', '负数按 0 处理');
-  assert.equal(A.rankOf(undefined).name, '新秀一阶');
+  assert.equal(A.rankOf(0).name, '穷人');
+  assert.equal(A.rankOf(419).name, '穷人');
+  assert.equal(A.rankOf(420).name, '佃户');
+  assert.equal(A.rankOf(860).name, '中农');
+  assert.equal(A.rankOf(1140).name, '富农');
+  assert.equal(A.rankOf(1820).name, '秀才');
+  assert.equal(A.rankOf(3140).name, '七品官');
+  assert.equal(A.rankOf(999999).name, '一品官');
+  assert.equal(A.rankOf(-5).name, '穷人', '负数按 0 处理');
+  assert.equal(A.rankOf(undefined).name, '穷人');
 });
 
 test('rankOf：进度文本与比例（截图里的 385/420）', () => {
   const r = A.rankOf(385);
-  assert.equal(r.name, '新秀一阶');
+  assert.equal(r.name, '穷人');
   assert.equal(r.text, '385/420');
   assert.ok(Math.abs(r.ratio - 385 / 420) < 1e-9);
-  assert.equal(r.next, '新秀二阶');
+  assert.equal(r.next, '佃户');
 });
 
 test('rankOf：顶段没有下一档时标记已封顶', () => {
@@ -431,7 +434,7 @@ test('赛季继承：新号未激活，继承后从 0 分重新开始', () => {
   assert.equal(st1.prevSeasonId, 'S20');
   assert.equal(st1.needInherit, true);
   assert.equal(st1.nowRank, A.INACTIVE_RANK, '未激活显示「未激活」');
-  assert.equal(st1.prevRank, '长工');
+  assert.equal(st1.prevRank, '佃户');
   assert.equal(st1.prevPoints, 112);
 
   const after = A.confirmInherit(st, acc);

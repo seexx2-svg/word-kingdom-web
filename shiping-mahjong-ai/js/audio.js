@@ -215,9 +215,28 @@
     tone(180, 0.14, 0.18, 0.03, 'square');
   }
 
+  /** 银币到账：三枚硬币先后落进铁盒，再补一串高频「哗啦」当余韵。
+   *  这是「钱真的进账了」的关键反馈，音量与时長都要明显大于普通 UI 提示音；
+   *  领银币按钮是很多人的第一次点击，这里自己再 unlock 一次，避免 AudioContext 还挂在 suspended。 */
+  function coin() {
+    if (!enabled) return;
+    unlock();
+    if (!ctx) return;
+    tone(1046, 0, 0.09, 0.075, 'triangle');
+    tone(1568, 0.055, 0.10, 0.065, 'sine');
+    tone(2093, 0.11, 0.15, 0.05, 'sine');
+    tone(2637, 0.12, 0.22, 0.028, 'sine');
+    clack(0.55);
+    setTimeout(() => {
+      if (!enabled || !ctx) return;
+      tone(1318, 0, 0.08, 0.04, 'triangle');
+      tone(1760, 0.06, 0.17, 0.03, 'sine');
+    }, 155);
+  }
+
   return {
     unlock, setEnabled, setVoice, isEnabled, isVoiceOn, status,
-    clack, gong, draw, buzzer, claim, discardTile,
+    clack, gong, draw, buzzer, coin, claim, discardTile,
     say, tileWord, hasTts
   };
 });

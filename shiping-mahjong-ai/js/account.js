@@ -25,22 +25,23 @@
   };
 
   /* ---------------- 段位阶梯（累计段位分阈值） ----------------
-   * 首个段位 0 分起步，新秀一阶满 420 分升二阶 —— 与截图里的「新秀一阶 385/420」一致。
+   * 乡土 → 科举 → 官阶，13 档，沿用原来的分数阈值（0 / 420 / 620 … 4820），
+   * 只换头衔名，不改段位分算法与升降速度。玩家从「穷人」一路做到「一品官」。
    */
   const RANKS = [
-    { name: '新秀一阶', at: 0 },
-    { name: '新秀二阶', at: 420 },
-    { name: '新秀三阶', at: 620 },
-    { name: '下士', at: 860 },
-    { name: '中士', at: 1140 },
-    { name: '上士', at: 1460 },
-    { name: '少尉', at: 1820 },
-    { name: '中尉', at: 2220 },
-    { name: '上尉', at: 2660 },
-    { name: '少校', at: 3140 },
-    { name: '中校', at: 3660 },
-    { name: '上校', at: 4220 },
-    { name: '中将', at: 4820 }
+    { name: '穷人', at: 0 },
+    { name: '佃户', at: 420 },
+    { name: '贫农', at: 620 },
+    { name: '中农', at: 860 },
+    { name: '富农', at: 1140 },
+    { name: '地主', at: 1460 },
+    { name: '秀才', at: 1820 },
+    { name: '举人', at: 2220 },
+    { name: '进士', at: 2660 },
+    { name: '七品官', at: 3140 },
+    { name: '五品官', at: 3660 },
+    { name: '三品官', at: 4220 },
+    { name: '一品官', at: 4820 }
   ];
   const INACTIVE_RANK = '未激活';
 
@@ -300,7 +301,7 @@
       gold: START_GOLD,
       seasonId: SEASON.id,
       rankPoints: 0,
-      prevSeason: { id: SEASON.prevId, rank: '长工', points: 112, activated: true },
+      prevSeason: { id: SEASON.prevId, rank: '佃户', points: 112, activated: true },
       activated: false,
       stats: { rounds: 0, wins: 0, selfDraw: 0, discardWin: 0, draws: 0, kongs: 0 },
       signin: { claimed: [], lastDay: '', streak: 0, streakClaimed: 0 },
@@ -478,7 +479,7 @@
   /* ---------------- 赛季继承 ---------------- */
   function inheritState(account) {
     const acc = normalizeAccount(account);
-    const prev = acc.prevSeason || { id: SEASON.prevId, rank: '长工', points: 112 };
+    const prev = acc.prevSeason || { id: SEASON.prevId, rank: '佃户', points: 112 };
     return {
       seasonId: SEASON.id,
       prevSeasonId: prev.id,

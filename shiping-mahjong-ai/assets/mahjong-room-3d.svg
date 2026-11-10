@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+<!--
+  v0.11.0 假 3D 牌桌的「房间」背景。
+  与 mahjong-table-bg.svg 的区别：这里只画窗外风景 + 地面，不画桌子。
+  梯形桌由 styles.css 第 20 节用 clip-path 画在 .table-frame / .felt 上，
+  这样桌面几何永远跟着实际牌桌盒子走，换分辨率也不会错位。
+-->
+<defs>
+  <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#67c5ed"/><stop offset=".55" stop-color="#bde7e6"/><stop offset="1" stop-color="#f3e4b3"/></linearGradient>
+  <linearGradient id="river" x2="0" y2="1"><stop stop-color="#63d0d3"/><stop offset="1" stop-color="#2d94a4"/></linearGradient>
+  <linearGradient id="floor" x2="0" y2="1"><stop stop-color="#2c4a42"/><stop offset=".45" stop-color="#1a332c"/><stop offset="1" stop-color="#0b1c17"/></linearGradient>
+  <linearGradient id="gold" x2="0" y2="1"><stop stop-color="#fff0b2"/><stop offset=".5" stop-color="#c28a3e"/><stop offset="1" stop-color="#71431e"/></linearGradient>
+  <pattern id="tile" width="120" height="72" patternUnits="userSpaceOnUse">
+    <rect width="120" height="72" fill="none"/>
+    <path d="M0 0H120M0 36H120M60 0V36M0 36V72M120 36V72" stroke="#8fbfae" stroke-opacity=".09" stroke-width="2"/>
+  </pattern>
+</defs>
+
+<!-- 窗外：天空 / 远山 / 江水 / 梯田 -->
+<rect width="1600" height="220" fill="url(#sky)"/>
+<path d="M0 96 Q140 46 280 82 T560 70 T850 84 T1130 60 T1390 78 T1600 68 V220 H0Z" fill="#5d9a4d"/>
+<path d="M0 114 Q180 62 380 108 T760 94 T1110 104 T1450 88 T1600 108 V220 H0Z" fill="#2f783c"/>
+<path d="M0 130 Q210 96 405 128 T800 118 T1190 124 T1600 116 V220 H0Z" fill="#9dc879"/>
+<path d="M0 138 Q170 122 300 140 T590 132 T900 146 T1240 130 T1600 136 V220 H0Z" fill="#3d8b70"/>
+<path d="M0 142 Q210 124 360 142 T740 145 T1090 135 T1450 148 T1600 138 V220 H0Z" fill="url(#river)"/>
+<path d="M260 137 Q345 108 424 139 Q500 163 570 135" fill="none" stroke="#f3e1bb" stroke-width="8"/>
+<path d="M260 134 Q345 105 424 136 Q500 160 570 132" fill="none" stroke="#8d5b36" stroke-width="5"/>
+<g fill="#fff" opacity=".32"><path d="M130 40q26-24 53 0q31-20 59 8H112q-10-6 18-8"/><path d="M650 28q24-22 49 0q31-23 61 8H633q-5-6 17-8"/><path d="M1200 38q29-24 57 0q30-20 56 6h-131q-5-5 18-6"/></g>
+<g fill="#f3dfc0" opacity=".8"><path d="M320 130l26-30 27 30z"/><path d="M346 130v-42h6v42"/><path d="M980 130l28-34 30 34z"/><path d="M1008 130v-46h6v46"/></g>
+
+<!-- 亭子立柱与栏杆 -->
+<rect x="0" y="0" width="46" height="190" fill="#4d2d1e"/><rect x="8" y="0" width="10" height="190" fill="#a76a39"/>
+<rect x="1554" y="0" width="46" height="190" fill="#4d2d1e"/><rect x="1582" y="0" width="9" height="190" fill="#a76a39"/>
+<path d="M0 18h112v14H0zM1488 18h112v14h-112z" fill="#54321f"/>
+<path d="M0 168 H1600 V212 H0Z" fill="#704226"/>
+<path d="M0 168 H1600 V178 H0Z" fill="#d59852"/>
+<path d="M0 180 H1600 V188 H0Z" fill="url(#gold)"/>
+<path d="M0 194 Q180 184 340 194 T680 194 T1020 194 T1360 194 T1600 194" fill="none" stroke="#f0cb87" stroke-width="2.5"/>
+
+<!-- 室内地面：桌子的梯形左右两侧会露出这一层 -->
+<rect x="0" y="212" width="1600" height="688" fill="url(#floor)"/>
+<rect x="0" y="212" width="1600" height="688" fill="url(#tile)"/>
+<path d="M0 212 H1600" stroke="#00000055" stroke-width="8"/>
+</svg>

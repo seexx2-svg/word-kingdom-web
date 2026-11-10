@@ -71,7 +71,7 @@ const ROW = {
   season_id: 'S25',
   season_activated: true,
   season_seen: true,
-  prev_season: { id: 'S20', rank: '长工', points: 112, activated: true },
+  prev_season: { id: 'S20', rank: '佃户', points: 112, activated: true },
   signin: { claimed: [1, 2], lastDay: '2026-11-09', streak: 2, streakClaimed: 0 },
   back_gift: { claimed: [1] },
   stats: { rounds: 9, wins: 4 },

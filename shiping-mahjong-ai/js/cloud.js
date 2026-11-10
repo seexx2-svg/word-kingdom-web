@@ -167,7 +167,7 @@
     return DEFAULT_NICK;
   }
 
-  const DEFAULT_PREV_SEASON = { id: 'S20', rank: '长工', points: 112, activated: true };
+  const DEFAULT_PREV_SEASON = { id: 'S20', rank: '佃户', points: 112, activated: true };
   const DEFAULT_SIGNIN = { claimed: [], lastDay: '', streak: 0, streakClaimed: 0 };
   const DEFAULT_STATS = { rounds: 0, wins: 0, selfDraw: 0, discardWin: 0, draws: 0, kongs: 0 };
 

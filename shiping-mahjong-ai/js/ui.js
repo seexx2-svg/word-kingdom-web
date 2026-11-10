@@ -21,6 +21,7 @@
   const KEY_ROUND = 'shiping-mahjong-round-v1';
   const KEY_VARIANT = 'shiping-mahjong-variant-v1';
   const KEY_HALL = 'honghe-hall-v1';
+  const KEY_3D = 'shiping-mahjong-3d-v1';
   const A = window.HongheAccount;
   const Auth = window.HongheAuth;
 
@@ -33,6 +34,7 @@
    * 上限必须低于 STALL_MS（2600），否则心跳会把「正在思考」误判成任务丢了。 */
   const SPEED = { claim: 1200, discard: 1600, kong: 950 };
   const SPEED_JITTER = 0.12;
+  const TURN_SECONDS = 15;          // 读秒：到 0 自动打出刚摸的那张
   const HEARTBEAT_MS = 900;
   const STALL_MS = 2600;
   const MAX_RETRY = 8;
@@ -66,7 +68,7 @@
   let speedScale = 1;           // 压力测试时可降到 0
   let autoPlay = false;
   let heartbeat = null;
-  let turnClock = null, turnLeft = 15;
+  let turnClock = null, turnLeft = 15, turnSeconds = TURN_SECONDS;
   let decisionAt = 0;
   let retryCount = 0;
   let renderSig = '';
@@ -77,6 +79,7 @@
   const LOGS = [];
   let lastDice = null;
   let audioCtx = null, soundEnabled = loadSoundSetting(), audioReady = false;
+  let readyTimer = null;           // 局前「准备 / 换桌」层的自动收起定时器
 
   /* ---------------- 存储 ---------------- */
   function loadSettings() {
@@ -93,6 +96,14 @@
     const body = document.body;
     body.classList.toggle('skin-riichi', !!on);
     const box = $('setting-riichi');
+    if (box) box.checked = !!on;
+  }
+  /* 假 3D 梯形桌：默认开，规则设置里关掉立刻回滚到平面机台，不用刷新。
+     只在 body 上挂一个 class，所有几何都走第 20 节的伪元素，不改任何布局盒。 */
+  function load3dSetting() { try { return localStorage.getItem(KEY_3D) !== 'off'; } catch (_) { return true; } }
+  function apply3d(on) {
+    document.body.classList.toggle('table-3d', !!on);
+    const box = $('setting-3d');
     if (box) box.checked = !!on;
   }
   function loadBankroll() {
@@ -185,11 +196,14 @@
   function rankInfo(points) {
     return A.rankOf(points === undefined ? (account ? account.rankPoints : 0) : points);
   }
+  /* 三个玩法都要能在下拉里选中。宝秀 / 个旧的规则还没定，内核里它们的
+     defaults 与石屏一致、scoring 为 null（内核只看 defaults），所以可以先按
+     石屏规则试玩，界面上会明确写「规则整理中，暂按石屏规则」。 */
   function loadVariantId() {
     try {
       const id = localStorage.getItem(KEY_VARIANT);
-      const v = C.getVariant(id);
-      return v && v.available ? v.id : C.DEFAULT_VARIANT;
+      const v = C.VARIANTS.find((x) => x.id === id);
+      return v ? v.id : C.DEFAULT_VARIANT;
     } catch (_) { return C.DEFAULT_VARIANT; }
   }
   function saveVariantId() { try { localStorage.setItem(KEY_VARIANT, variantId); } catch (_) { /* ignore */ } }
@@ -266,13 +280,27 @@
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(at); osc.stop(at + duration + 0.015);
   }
-  function playSound(kind = 'ui') {
-    if (!soundEnabled || !audioReady) return;
+  /** 音频解锁必须在真实点击里做一次。第一次点「免费领银币」时 AudioContext
+   *  刚被 new 出来常常还挂在 suspended，直接排音符会被浏览器吞掉 —— 所以
+   *  playSound 里还要等 resume() 落地再发声。 */
+  function unlockAudio() {
+    audioReady = true;
+    if (Sfx) Sfx.unlock();
     const Audio = window.AudioContext || window.webkitAudioContext;
-    if (!Audio) return;
+    if (!Audio) return null;
     try {
       if (!audioCtx) audioCtx = new Audio();
       if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    } catch (_) { return null; }
+  }
+  function playSound(kind = 'ui') {
+    if (!audioReady) return;
+    /* 到账反馈是必须听见的：即使「声音」开关关了，领银币也要响一声 */
+    if (!soundEnabled && kind !== 'coin') return;
+    const ctx = unlockAudio();
+    if (!ctx) return;
+    try {
       if (kind === 'thunder') { thunder(); return; }
       const bank = {
         ui: [[880, 0, 0.045, 0.018, 'sine']],
@@ -285,9 +313,14 @@
         hu: [[523, 0, 0.12, 0.035, 'sine'], [659, 0.12, 0.12, 0.038, 'sine'], [784, 0.24, 0.15, 0.04, 'sine'], [1046, 0.39, 0.24, 0.045, 'sine']],
         /* 银币到账：两下金属感的"叮—叮"，再补一层高频泛音当作余韵。
            频率取 B5 → E6（164.8 音分的上行五度），听起来就是"钱进来了"而不是普通点击。 */
-        coin: [[988, 0, 0.045, 0.05, 'triangle'], [1319, 0.048, 0.1, 0.055, 'sine'], [1976, 0.052, 0.2, 0.022, 'sine']]
+        coin: [[988, 0, 0.07, 0.085, 'triangle'], [1319, 0.055, 0.13, 0.075, 'sine'], [1976, 0.06, 0.26, 0.032, 'sine']]
       };
-      (bank[kind] || bank.ui).forEach((v) => tone(...v));
+      const fire = () => (bank[kind] || bank.ui).forEach((v) => tone(...v));
+      if (ctx.state === 'suspended') {
+        const r = ctx.resume && ctx.resume();
+        if (r && typeof r.then === 'function') r.then(fire).catch(fire);
+        else fire();
+      } else fire();
     } catch (_) { /* ignore */ }
   }
   /* 雷声。振荡器发不出"噼啪"，得先造一段白噪声再滤波：
@@ -512,7 +545,10 @@
       const tiles = document.createElement('span');
       tiles.className = 'meld-tiles';
       m.tiles.forEach((id, index) => {
-        const isCalled = Number.isInteger(m.calledTileIndex) && index === m.calledTileIndex && !m.concealed;
+        /* 碰 / 杠的三四张牌一模一样，标「哪张是接来的」没有意义；
+           只有吃牌才需要指出接进来的是哪一张（顺序不同，看得清组合）。 */
+        const isCalled = m.type === 'chi' && Number.isInteger(m.calledTileIndex)
+          && index === m.calledTileIndex && !m.concealed;
         const el = tileEl(id, isCalled ? 'meld-called-tile' : '');
         if (isCalled) {
           el.dataset.called = '1';
@@ -529,30 +565,16 @@
       box.appendChild(group);
     });
   }
-  /** 从各家副露反推：这一家的牌河里有哪几张被吃 / 碰 / 明杠取走了。
-   *  内核结算时会把那张牌从牌河删掉（保住"牌河张数"的语义），但牌桌上玩家
-   *  仍然看得见——所以这里把它按时间顺序补回来，界面上盖一层遮罩表示"已被接走"。
-   *  暗杠、补杠不从牌河拿牌，不参与。 */
-  function claimedFrom(seat) {
-    const out = [];
-    for (let p = 0; p < 4; p++) {
-      if (p === seat) continue;
-      state.melds[p].forEach((m) => {
-        if (m.concealed || m.added) return;
-        if (m.from !== seat) return;
-        if (m.calledTile === undefined || m.calledTile === null) return;
-        out.push({ tile: m.calledTile, by: p, kind: m.type });
-      });
-    }
-    return out;
-  }
+  /** 牌河只画「还留在河里的牌」。
+   *  被吃 / 碰 / 明杠取走的那张，内核 claimDiscard 已经 splice 掉了；
+   *  旧版会把它们补回来挂成带遮罩的固定幽灵牌，看着像钉在那儿不动。
+   *  现在不做补回：剩下的牌按原本的打出顺序自然往前排，不留空位。 */
   function renderDiscards(s) {
     const box = $('discards-' + s);
     if (!box) return;
     const pile = state.discards[s];
-    const ghosts = claimedFrom(s);
-    const sig = pile.join(',') + '|' + ghosts.map((g) => g.tile + g.by).join(',');
-    box.classList.toggle('is-dense', pile.length + ghosts.length > 18);
+    const sig = pile.join(',');
+    box.classList.toggle('is-dense', pile.length > 18);
     if (box.dataset.sig === sig) {
       // 只在牌没变的情况下更新最新一张的高亮，避免重排造成闪烁
       Array.from(box.children).forEach((el, i) => el.classList.toggle('latest-discard', i === pile.length - 1));
@@ -563,13 +585,6 @@
     pile.forEach((id, index) => {
       const el = tileEl(id, index === pile.length - 1 ? 'latest-discard' : '');
       if (index === pile.length - 1) el.title = SEATS[s] + ' ' + NAMES[s] + ' 打出 ' + C.tileLabel(id);
-      box.appendChild(el);
-    });
-    ghosts.forEach((g) => {
-      const el = tileEl(g.tile, 'claimed-ghost');
-      el.dataset.claimedBy = String(g.by);
-      el.title = C.tileLabel(g.tile) + ' 被' + SEATS[g.by] + ' ' + NAMES[g.by]
-        + ({ chi: ' 吃', peng: ' 碰', gang: ' 杠' }[g.kind] || ' 接') + '走';
       box.appendChild(el);
     });
   }
@@ -623,7 +638,7 @@
     const hudBet = $('hud-bet');
     if (hudBet) hudBet.textContent = '底注:' + A.fmtNum(hall.baseBet);
   }
-  const AI_RANKS = ['中将', '中士', '少尉'];
+  const AI_RANKS = ['进士', '举人', '秀才'];
   function paintSeatRanks() {
     for (let i = 1; i < 4; i++) {
       const el = $('rank-' + i);
@@ -655,6 +670,23 @@
     const el = document.querySelector(map[side] || '.wall-south');
     if (el) el.classList.add('cut-wall');
   }
+  /** 读秒到 0：自动打出「刚摸进来的那张」。
+   *  drawFor() 把摸的牌 push 到手牌末尾并记 lastDraw；用 lastIndexOf 找它，
+   *  免得手牌里有同名牌时挑错下标。恰好赶上动画 busy 就短暂重试，不让这一手卡死。 */
+  function autoDiscardDrawn(tries) {
+    if (!state || state.phase !== C.PHASES.DISCARD || state.current !== 0) return;
+    if (busy) {
+      if (tries > 0) setTimeout(() => autoDiscardDrawn(tries - 1), 180);
+      return;
+    }
+    const hand = state.hands[0] || [];
+    const drawn = state.lastDraw && state.lastDraw.seat === 0 ? state.lastDraw.tile : null;
+    let idx = drawn === null ? -1 : hand.lastIndexOf(drawn);
+    if (idx < 0) idx = hand.length - 1;
+    if (idx < 0) return;
+    toast('读秒结束，自动打出刚摸的 ' + C.tileLabel(hand[idx]));
+    humanDiscard(idx);
+  }
   function refreshTurnClock() {
     const box = $('turn-clock');
     if (!box) return;
@@ -666,8 +698,8 @@
       return;
     }
     if (turnClock) return;
-    turnLeft = 15;
-    box.textContent = '15';
+    turnLeft = turnSeconds;
+    box.textContent = String(turnSeconds).padStart(2, '0');
     box.classList.remove('urgent');
     turnClock = setInterval(() => {
       if (!state || state.phase !== C.PHASES.DISCARD || state.current !== 0) {
@@ -676,7 +708,10 @@
       turnLeft = Math.max(0, turnLeft - 1);
       box.textContent = String(turnLeft).padStart(2, '0');
       box.classList.toggle('urgent', turnLeft <= 5);
-      if (turnLeft === 0) { clearInterval(turnClock); turnClock = null; }
+      if (turnLeft === 0) {
+        clearInterval(turnClock); turnClock = null;
+        autoDiscardDrawn(10);
+      }
     }, 1000);
   }
 
@@ -688,13 +723,37 @@
     bar.innerHTML = '';
     build(bar);
   }
-  function addButton(bar, label, cls, handler) {
+  function addButton(bar, label, cls, handler, title) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'action-button action-' + cls;
     b.textContent = label;
+    if (title) b.title = title;
     b.addEventListener('click', () => {
-      audioReady = true;
+      unlockAudio();
+      playSound('ui');
+      handler();
+    });
+    bar.appendChild(b);
+  }
+  /** 吃牌有多种组合时，右侧按 1/2/3 的顺序列出小牌组，点哪组吃哪组。
+   *  小牌用同一个 tileEl()，牌面与桌面保持同一套图。 */
+  function addChiOption(bar, opt, index, handler) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'action-button action-chi chi-option';
+    b.dataset.option = String(index);
+    b.setAttribute('aria-label', '吃法 ' + (index + 1) + '：' + opt.meld.map(C.tileLabel).join(''));
+    const no = document.createElement('i');
+    no.className = 'chi-option-no';
+    no.textContent = String(index + 1);
+    b.appendChild(no);
+    const row = document.createElement('span');
+    row.className = 'chi-option-tiles';
+    opt.meld.forEach((id) => row.appendChild(tileEl(id, 'mini-tile')));
+    b.appendChild(row);
+    b.addEventListener('click', () => {
+      unlockAudio();
       playSound('ui');
       handler();
     });
@@ -715,14 +774,16 @@
       const types = cand.actions.map((x) => x.type).join(',');
       setActionBar('claim:' + state.lastDiscard.tile + ':' + types, (bar) => {
         addInfo(bar, SEATS[cand.seat] + ' 请选择：有人打出 ' + C.tileLabel(state.lastDiscard.tile));
-        if (types.includes('hu')) addButton(bar, '胡牌', 'hu', () => humanClaim('hu'));
-        if (types.includes('gang')) addButton(bar, '明杠', 'gang', () => humanClaim('gang'));
+        if (types.includes('hu')) addButton(bar, '胡', 'hu', () => humanClaim('hu'), '胡牌');
+        if (types.includes('gang')) addButton(bar, '杠', 'gang', () => humanClaim('gang'), '明杠');
         if (types.includes('peng')) addButton(bar, '碰', 'peng', () => humanClaim('peng'));
         const chi = cand.actions.find((x) => x.type === 'chi');
         if (chi) {
-          chi.options.forEach((opt, i) => {
-            addButton(bar, '吃 ' + opt.meld.map(C.tileLabel).join(''), 'chi', () => humanClaim('chi', i));
-          });
+          if (chi.options.length > 1) {
+            chi.options.forEach((opt, i) => addChiOption(bar, opt, i, () => humanClaim('chi', i)));
+          } else if (chi.options.length) {
+            addButton(bar, '吃', 'chi', () => humanClaim('chi', 0), '吃 ' + chi.options[0].meld.map(C.tileLabel).join(''));
+          }
         }
         addButton(bar, '过', 'pass', humanPass);
       });
@@ -730,9 +791,9 @@
       const own = C.selfActions(state, 0);
       const sig = 'discard:' + own.hu + ':' + own.concealedKongs.join('.') + ':' + own.addedKongs.join('.');
       setActionBar(sig, (bar) => {
-        if (own.hu) addButton(bar, '自摸胡', 'hu', humanWin);
-        own.concealedKongs.forEach((id) => addButton(bar, '暗杠 ' + C.tileLabel(id), 'gang', () => humanSelfKong('concealed', id)));
-        own.addedKongs.forEach((id) => addButton(bar, '补杠 ' + C.tileLabel(id), 'gang', () => humanSelfKong('added', id)));
+        if (own.hu) addButton(bar, '胡', 'hu', humanWin, '自摸胡');
+        own.concealedKongs.forEach((id) => addButton(bar, '杠', 'gang', () => humanSelfKong('concealed', id), '暗杠 ' + C.tileLabel(id)));
+        own.addedKongs.forEach((id) => addButton(bar, '杠', 'gang', () => humanSelfKong('added', id), '补杠 ' + C.tileLabel(id)));
         if (!own.hu && !own.concealedKongs.length && !own.addedKongs.length) addInfo(bar, '选择一张手牌出牌');
         else addInfo(bar, '或点击手牌出牌');
       });
@@ -1730,35 +1791,45 @@
     paintFreeButton();
   }
 
-  /* ---------------- 玩法选择：石屏开放，宝秀 / 个旧先留位 ----------------
-   * 这两格刻意不做成 disabled：灰掉的按钮会被读成"功能坏了"，
-   * 留着可点、点了一句"规则还在整理"，反而更清楚。 */
-  const LOCKED_VARIANTS = {
-    baoxiu: '宝秀麻将的规则我还在整理，定下来就开',
-    gejiu: '个旧麻将的规则我还在整理，定下来就开'
+  /* ---------------- 玩法选择：三个都在下拉里，压在「快速匹配」上方 ----------------
+   * 宝秀 / 个旧规则还没定，内核里它们的 defaults 与石屏一致、scoring 为 null，
+   * 所以选中后依然能开局试玩，但大厅与桌面都明写「规则整理中，暂按石屏规则」，
+   * 不冒充已经实现。拿到真实规则时只要补 core.js 里那两份 defaults / scoring。 */
+  const VARIANT_TIPS = {
+    baoxiu: '宝秀麻将规则还在整理，暂按石屏规则试玩',
+    gejiu: '个旧麻将规则还在整理，暂按石屏规则试玩'
   };
-  function bindModeCards() {
-    const box = $('lobby-modes');
-    if (!box) return;
-    box.addEventListener('click', (e) => {
-      const card = e.target.closest('.mode-card');
-      if (!card) return;
-      playSound('ui');
-      const id = card.dataset.variant;
-      if (card.classList.contains('is-locked')) {
-        const tip = LOCKED_VARIANTS[id] || '这个玩法还没开放';
-        toast(tip);
-        lobbyStatus(tip);
-        return;
-      }
-      if (card.classList.contains('is-on')) return;
-      box.querySelectorAll('.mode-card').forEach((c) => {
-        const on = c === card;
-        c.classList.toggle('is-on', on);
-        c.classList.toggle('is-locked', c.dataset.variant !== 'shiping');
-        c.setAttribute('aria-selected', String(on));
-      });
-    });
+  function paintVariantSelect() {
+    const v = C.getVariant(variantId);
+    const sel = $('lobby-variant-select');
+    if (sel) sel.value = v.id;
+    const title = $('lobby-variant-title');
+    if (title) title.textContent = v.name;
+    const sub = $('lobby-variant-sub');
+    if (sub) sub.textContent = v.region + ' · ' + (v.available ? '136 张 · 吃碰杠全开 · 四人一桌' : '规则整理中 · 暂按石屏规则');
+    const note = $('lobby-variant-note');
+    if (note) note.textContent = v.available ? '' : (VARIANT_TIPS[v.id] || '');
+    const mark = $('table-variant-name');
+    if (mark) mark.textContent = v.name;
+    const hallTitle = $('hall-title');
+    if (hallTitle) hallTitle.textContent = v.name;
+  }
+  function setVariant(id) {
+    const v = C.VARIANTS.find((x) => x.id === id);
+    if (!v) return;
+    variantId = v.id;
+    saveVariantId();
+    paintVariantSelect();
+    if (!v.available) {
+      const tip = VARIANT_TIPS[v.id] || '这个玩法还在整理';
+      toast(tip);
+      lobbyStatus(tip, 'warn');
+    } else lobbyStatus('');
+  }
+  function bindVariantSelect() {
+    const sel = $('lobby-variant-select');
+    if (!sel) return;
+    sel.addEventListener('change', () => { playSound('ui'); setVariant(sel.value); });
   }
 
   /* ---------------- 大厅：只留「快速匹配」和「快速人机」 ---------------- */
@@ -1772,6 +1843,7 @@
   /** 真人匹配要「云端可用 + 云端账号」。没登录时不把按钮灰掉——
    *  灰按钮只会让人以为功能坏了，点了直接弹登录并说清原因更好懂。 */
   function paintLobbyMode() {
+    paintVariantSelect();
     const cloudOk = !!(Cloud && Cloud.status && Cloud.status().ready);
     const onlineOk = cloudOk && !!account && account.source === 'cloud';
     const btn = $('lobby-match');
@@ -1843,7 +1915,11 @@
     account = res.account || account;
     renderHome();
     persist({ silent: true });
+    /* 很多人第一次进游戏点的就是这颗按钮：先在这一个手势里解锁两层音频，
+       再发「叮叮 + 哗啦」，避免只飘字不响。 */
+    unlockAudio();
     playSound('coin');
+    if (Sfx && Sfx.coin) Sfx.coin();
     coinPop(res.coins);
     toast('+' + A.fmtNum(res.coins) + ' 银币（今日还剩 ' + res.state.freeLeft + ' 次）');
     lobbyStatus('领到 ' + A.fmtNum(res.coins) + ' 银币，今日还剩 ' + res.state.freeLeft + ' 次');
@@ -2046,6 +2122,39 @@
     const rnd = () => base + Math.round(Math.random() * base);
     return [myCoins, rnd(), rnd(), rnd()];
   }
+  /* ---------------- 局前等待层：换桌 / 准备 ----------------
+   * 截图里那张「四家头像 + 两个胶囊按钮」的等待桌。开局仍在后台照常跑，
+   * 点「准备」立刻收起、2.8 秒后自动收起，所以既不挡自动开局也不挡测试。 */
+  function paintReadySeats() {
+    for (let seat = 0; seat < 4; seat++) {
+      const face = $('ready-face-' + seat);
+      if (face) face.textContent = (NAMES[seat] || '牌').slice(0, 1);
+      const name = $('ready-name-' + seat);
+      if (name) name.textContent = NAMES[seat];
+      const rank = $('ready-rank-' + seat);
+      if (rank) rank.textContent = seat === 0 ? rankInfo().name : AI_RANKS[seat - 1];
+      const coin = $('ready-coin-' + seat);
+      if (coin) coin.textContent = A.fmtNum(balances[seat] || 0);
+    }
+    const bet = $('ready-bet');
+    if (bet) bet.textContent = '底注 ' + A.fmtNum(A.hallOf(hallId).baseBet);
+    const tip = $('ready-tip');
+    if (tip) tip.textContent = '当前玩法：' + C.getVariant(variantId).name + ' · 点「准备」立刻开局';
+  }
+  function hideTableReady() {
+    if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
+    const el = $('table-ready');
+    if (el) el.classList.add('hidden');
+  }
+  function showTableReady() {
+    const el = $('table-ready');
+    if (!el) return;
+    paintReadySeats();
+    el.classList.remove('hidden');
+    if (readyTimer) clearTimeout(readyTimer);
+    readyTimer = setTimeout(hideTableReady, 2800);
+  }
+
   function startTable(id, startOpts) {
     if (!account) { openLogin(); return; }
     const opts = startOpts || {};
@@ -2067,6 +2176,9 @@
     roundNo += 1;
     saveRoundNo();
     newGame();
+    /* 真人从大厅进桌先看一眼同伴与「换桌 / 准备」；联机与调试入口直接开局 */
+    if (!opts.online && !opts.instant) showTableReady();
+    else hideTableReady();
   }
 
   /* ---------------- 签到 / 回归 / 奖励 ---------------- */
@@ -2264,15 +2376,22 @@
     on('hall-back', 'click', enterHome);
     on('hall-help', 'click', () => toast('底分越高，输赢越大；段位分只与胜负有关'));
 
-    /* 新大厅：只有两个入口（玩法在 mode-card 里选，目前只有石屏开放） */
+    /* 新大厅：只有两个入口（玩法在首页的 #lobby-variant-select 下拉里选） */
     on('lobby-ai', 'click', () => { audioReady = true; if (Sfx) Sfx.unlock(); doQuickAi(); });
     on('lobby-match', 'click', () => {
       audioReady = true;
       if (Sfx) Sfx.unlock();
       doQuickMatch().catch((err) => lobbyStatus((err && err.message) || '匹配失败', 'warn'));
     });
-    on('lobby-free', 'click', doFreeCoins);
-    bindModeCards();
+    on('lobby-free', 'click', () => { unlockAudio(); doFreeCoins(); });
+    bindVariantSelect();
+    on('ready-go', 'click', () => { unlockAudio(); playSound('ui'); hideTableReady(); toast('已准备，开局！'); });
+    on('ready-switch', 'click', () => {
+      hideTableReady();
+      stopAi();
+      enterHome();
+      toast('已换桌，回大厅重新选一场');
+    });
 
     document.querySelectorAll('.home-nav').forEach((nav) => {
       nav.addEventListener('click', (e) => {
@@ -2406,12 +2525,9 @@
     $('sound-toggle').addEventListener('click', toggleSound);
     const lobbySound = $('lobby-sound');
     if (lobbySound) lobbySound.addEventListener('click', toggleSound);
-    document.addEventListener('pointerdown', () => {
-      audioReady = true;
-      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    }, { once: true });
-    $('rules-open').addEventListener('click', () => { audioReady = true; playSound('ui'); openRules(); });
-    $('rules-open-2').addEventListener('click', () => { audioReady = true; playSound('ui'); openRules(); });
+    document.addEventListener('pointerdown', () => { unlockAudio(); }, { once: true });
+    $('rules-open').addEventListener('click', () => { unlockAudio(); playSound('ui'); openRules(); });
+    /* 右侧那颗圆形「☰」已删掉，规则设置统一走顶栏，别再给不存在的 id 绑事件 */
     $('rules-close').addEventListener('click', closeRules);
     $('rules-cancel').addEventListener('click', closeRules);
     $('rules-save').addEventListener('click', saveSettings);
@@ -2421,6 +2537,13 @@
       applySkin(on);
       try { localStorage.setItem(KEY_SKIN, on ? 'on' : 'off'); } catch (_) { /* ignore */ }
       toast(on ? '已切换到立直麻将机牌面' : '已换回传统牌面');
+    });
+    /* 假 3D 牌桌也是即时开关，关掉就是一键回滚到平面机台 */
+    $('setting-3d').addEventListener('change', () => {
+      const on = $('setting-3d').checked;
+      apply3d(on);
+      try { localStorage.setItem(KEY_3D, on ? 'on' : 'off'); } catch (_) { /* ignore */ }
+      toast(on ? '已切换到假 3D 牌桌' : '已换回平面机台');
     });
     $('rules-modal').addEventListener('click', (e) => { if (e.target === $('rules-modal')) closeRules(); });
     $('new-game').addEventListener('click', () => { audioReady = true; roundNo += 1; saveRoundNo(); newGame(); });
@@ -2512,6 +2635,51 @@
     window.__shipingMahjongLogs = () => LOGS.slice();
     window.__shipingMahjongAutoPlay = autoPlayGames;
     window.__shipingMahjongSetSpeed = (v) => { speedScale = Number(v); return speedScale; };
+    /* v0.11.0 调试钩子：把 15 秒读秒压到 1 秒，方便回归「超时自动出刚摸的牌」 */
+    window.__shipingMahjongSetTurnSeconds = (s) => {
+      turnSeconds = Math.max(1, Math.round(Number(s) || TURN_SECONDS));
+      return turnSeconds;
+    };
+    window.__shipingMahjongReady = () => {
+      const el = $('table-ready');
+      return {
+        hidden: !el || el.classList.contains('hidden'),
+        seats: [0, 1, 2, 3].map((i) => ({
+          name: ($('ready-name-' + i) || {}).textContent,
+          rank: ($('ready-rank-' + i) || {}).textContent
+        })),
+        bet: ($('ready-bet') || {}).textContent,
+        buttons: ['ready-switch', 'ready-go'].filter((id) => $(id))
+      };
+    };
+    window.__shipingMahjongShowReady = () => { showTableReady(); return true; };
+    window.__shipingMahjongSetVariant = (id) => { setVariant(id); return variantId; };
+    /** 只画一次「三种吃法」的右侧小牌组，用来回归多选项的展示，不改动局面 */
+    window.__shipingMahjongChiPreview = () => {
+      const bar = $('action-bar');
+      if (!bar) return 0;
+      barSig = 'debug-chi-preview';
+      bar.innerHTML = '';
+      [{ meld: [0, 1, 2] }, { meld: [1, 2, 3] }, { meld: [2, 3, 4] }]
+        .forEach((opt, i) => addChiOption(bar, opt, i, () => {}));
+      addButton(bar, '过', 'pass', () => {});
+      return bar.querySelectorAll('.chi-option').length;
+    };
+    /** 注入一组「吃 / 碰 / 杠」副露，用来回归「只有吃牌标接进来的那张」 */
+    window.__shipingMahjongMeldPreview = () => {
+      if (!state) return null;
+      state.melds[0] = [
+        { type: 'chi', tiles: [0, 1, 2], from: 1, calledFrom: 1, calledTile: 2, calledTileIndex: 2 },
+        { type: 'peng', tiles: [5, 5, 5], from: 2, calledFrom: 2, calledTile: 5, calledTileIndex: 1 },
+        { type: 'gang', tiles: [9, 9, 9, 9], from: 3, calledFrom: 3, calledTile: 9, calledTileIndex: 0, concealed: false, added: false }
+      ];
+      render(true);
+      return Array.from(document.querySelectorAll('#meld-0 .meld-group')).map((g) => ({
+        cls: g.className,
+        called: g.querySelectorAll('.meld-called-tile').length,
+        pins: g.querySelectorAll('.called-pin').length
+      }));
+    };
     /* 外壳调试接口：账号 / 赛季 / 场次。全部绕过 DOM 输入框，供自动化测试驱动 */
     window.__shipingMahjongShell = () => ({
       screen: screenId,
@@ -2660,7 +2828,8 @@
     window.__shipingMahjongOpenHall = () => { if (!account) return false; openHall(); return screenId; };
     window.__shipingMahjongStartTable = (id) => {
       if (!account) return false;
-      startTable(id || hallId);
+      /* 测试入口跳过「准备」层，避免等待层挡住几何测量与自动流程 */
+      startTable(id || hallId, { instant: true });
       return { screen: screenId, hall: hallId, baseBet: A.hallOf(hallId).baseBet, phase: state ? state.phase : null };
     };
     window.__shipingMahjongOpenSignin = () => { if (!account) return false; openSignin(); return true; };
@@ -2848,6 +3017,7 @@
     if (!storageAvailable()) toast('浏览器禁用了本地存储，登录状态与游客进度都无法保存');
     syncSoundButton();
     applySkin(loadSkinSetting());
+    apply3d(load3dSetting());
     if (Sfx) Sfx.setEnabled(soundEnabled);
     bind();
     bindShell();
@@ -2855,9 +3025,9 @@
     installDebugApi();
     /* iOS 只允许在用户手势里启动 AudioContext：第一次点哪里都顺手解锁一次，
      * 否则牌桌里第一次出牌是没声音的（这是移动端最容易踩的坑） */
-    const unlockAudio = () => { audioReady = true; if (Sfx) Sfx.unlock(); };
-    document.addEventListener('pointerdown', unlockAudio, { once: true });
-    document.addEventListener('keydown', unlockAudio, { once: true });
+    const unlockOnGesture = () => { unlockAudio(); };
+    document.addEventListener('pointerdown', unlockOnGesture, { once: true });
+    document.addEventListener('keydown', unlockOnGesture, { once: true });
     // 横竖屏切换时牌面尺寸会变，结算层的自适应要跟着重算
     window.addEventListener('resize', () => fitResult());
     window.addEventListener('orientationchange', () => setTimeout(fitResult, 220));

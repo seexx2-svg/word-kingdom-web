@@ -171,7 +171,7 @@
     <div class="inherit-row">
       <div class="rank-orb blue">
         <span class="orb-cap">S20 赛季段位称号</span>
-        <span class="orb-badge" id="inherit-prev-badge">长工</span>
+        <span class="orb-badge" id="inherit-prev-badge">佃户</span>
         <span class="orb-pts">段位积分：<b id="inherit-prev-pts">112</b></span>
       </div>
       <div class="inherit-arrow" aria-hidden="true"></div>
@@ -198,7 +198,7 @@
       <div class="player-meta">
         <div class="player-line">
           <b class="player-name" id="home-nick">小双州黯</b>
-          <span class="rank-badge" id="home-rank">新秀一阶</span>
+          <span class="rank-badge" id="home-rank">穷人</span>
         </div>
         <div class="wallet">
           <span class="wallet-item"><svg class="ico"><use href="#i-coin"/></svg><b id="home-coins">5,000</b></span>
@@ -222,7 +222,7 @@
         <span id="am-account">账号 —</span>
       </div>
     </div>
-    <p class="am-rank" id="am-rank">新秀一阶 · 0/420</p>
+    <p class="am-rank" id="am-rank">穷人 · 0/420</p>
     <p class="am-cloud" id="am-cloud">云端已同步</p>
     <div class="am-rename hidden" id="am-rename-box">
       <input id="am-nick-input" type="text" maxlength="12" placeholder="2-12 个字" aria-label="新昵称">
@@ -236,24 +236,28 @@
   <div class="lobby">
     <div class="lobby-hero">
       <div class="lobby-brand">
-        <strong>石屏麻将</strong>
-        <small>红河 · 石屏规则 · 136 张 · 四人一桌</small>
+        <strong id="lobby-variant-title">石屏麻将</strong>
+        <small id="lobby-variant-sub">红河 · 石屏规则 · 136 张 · 四人一桌</small>
       </div>
 
-      <!-- 三种玩法：石屏已开放，宝秀 / 个旧留位置。
-           拿到真实规则后只要把 is-locked 去掉、接上 core.js 里的 variant 即可。 -->
-      <div class="lobby-modes" id="lobby-modes" role="tablist" aria-label="选择玩法">
-        <button class="mode-card is-on" type="button" role="tab" aria-selected="true" data-variant="shiping">
-          <b>石屏麻将</b><small>吃碰杠全开 · 烂牌胡</small>
-        </button>
-        <button class="mode-card is-locked" type="button" role="tab" aria-selected="false" data-variant="baoxiu">
-          <i class="mc-lock" aria-hidden="true">锁</i><b>宝秀麻将</b><small>规则整理中</small>
-        </button>
-        <button class="mode-card is-locked" type="button" role="tab" aria-selected="false" data-variant="gejiu">
-          <i class="mc-lock" aria-hidden="true">锁</i><b>个旧麻将</b><small>规则整理中</small>
-        </button>
+    </div>
+
+    <!-- 玩法下拉：三个都在红河州，选中的玩法会带进牌桌。
+         宝秀 / 个旧规则还没定，选中后仍按石屏规则试玩，并明确提示。
+         这一块必须是 .lobby 的直接子元素：横屏大厅是左右两栏，
+         只有独立成行才能稳稳压在「快速匹配」上方（见 styles.css 第 20 节）。 -->
+    <div class="lobby-variant" id="lobby-modes">
+      <div class="variant-pill">
+        <label for="lobby-variant-select">选择玩法</label>
+        <select class="variant-select" id="lobby-variant-select" aria-label="选择玩法">
+          <option value="shiping">石屏麻将 · 吃碰杠全开</option>
+          <option value="baoxiu">宝秀麻将 · 规则整理中</option>
+          <option value="gejiu">个旧麻将 · 规则整理中</option>
+        </select>
       </div>
     </div>
+
+    <div class="lobby-variant-note" id="lobby-variant-note" aria-live="polite"></div>
 
     <div class="lobby-actions">
       <button class="lobby-btn primary" id="lobby-match" type="button">
@@ -296,8 +300,8 @@
 
   <div class="hall-rank">
     <div class="hall-season"><b>S25 赛季</b><small>2026.11.06~2027.01.05</small></div>
-    <div class="hall-emblem" aria-hidden="true"><span id="hall-emblem-text">新秀</span></div>
-    <div class="hall-rankname" id="hall-rank-name">新秀一阶</div>
+    <div class="hall-emblem" aria-hidden="true"><span id="hall-emblem-text">寒门</span></div>
+    <div class="hall-rankname" id="hall-rank-name">穷人</div>
     <div class="hall-rankbar"><i id="hall-rank-bar" style="width:0%"></i></div>
     <div class="hall-rankpts" id="hall-rank-text">0/420</div>
     <div class="hall-rank-actions">
@@ -330,7 +334,7 @@
 <section class="screen table-screen hidden" id="screen-table">
 <div class="app-shell">
   <header class="topbar">
-    <div class="brand" id="brand" role="button" tabindex="0" title="返回主界面"><div class="brand-mark" id="brand-mark">黯</div><div><b id="brand-title">小双州黯</b><small id="brand-sub">新秀一阶 · 初级场</small></div></div>
+    <div class="brand" id="brand" role="button" tabindex="0" title="返回主界面"><div class="brand-mark" id="brand-mark">黯</div><div><b id="brand-title">小双州黯</b><small id="brand-sub">穷人 · 初级场</small></div></div>
     <div class="top-actions">
       <div class="top-stat remain-stat"><span class="lamp"></span><span id="wall-count">剩牌:83张</span></div>
       <div class="top-stat bankroll-stat" id="bankroll-display">银币 5,000</div>
@@ -345,7 +349,7 @@
     <section class="table-frame">
       <div class="felt">
         <div class="felt-sheen"></div>
-        <div class="table-tablemark"><strong>石屏麻将</strong><small id="table-bet">底注:2000</small></div>
+        <div class="table-tablemark"><strong id="table-variant-name">石屏麻将</strong><small id="table-bet">底注:2000</small></div>
 
         <div class="dice-overlay hidden" id="dice-overlay" aria-live="polite">
           <div class="dice-card">
@@ -362,7 +366,7 @@
 
         <section class="seat seat-north" id="seat-1">
           <div class="pcard">
-            <div class="pcard-rank"><i class="rank-chip" id="rank-1">中将</i></div>
+            <div class="pcard-rank"><i class="rank-chip" id="rank-1">进士</i></div>
             <div class="pcard-body">
               <div class="pcard-face avatar-north" id="face-1">李</div>
               <div class="pcard-text">
@@ -388,7 +392,7 @@
                 <span class="seat-score" id="score-3">0</span>
               </div>
             </div>
-            <div class="pcard-rank"><i class="rank-chip" id="rank-3">中士</i></div>
+            <div class="pcard-rank"><i class="rank-chip" id="rank-3">举人</i></div>
             <span class="dealer-badge">起</span>
             <span class="seat-turn" id="turn-3"></span>
           </div>
@@ -398,7 +402,7 @@
 
         <section class="seat seat-east" id="seat-2">
           <div class="pcard">
-            <div class="pcard-rank"><i class="rank-chip" id="rank-2">少尉</i></div>
+            <div class="pcard-rank"><i class="rank-chip" id="rank-2">秀才</i></div>
             <div class="pcard-body">
               <div class="pcard-face avatar-west" id="face-2">梅</div>
               <div class="pcard-text">
@@ -444,7 +448,7 @@
             <span class="seat-score" id="score-0">0</span>
             <span class="dealer-badge">起</span>
             <span class="seat-turn" id="turn-0"></span>
-            <i class="rank-chip self" id="rank-0">新秀一阶</i>
+            <i class="rank-chip self" id="rank-0">穷人</i>
           </div>
         </section>
 
@@ -453,6 +457,23 @@
           <div class="meld-row meld-own" id="meld-0"></div>
           <div class="hand-tiles" id="hand-tiles" aria-label="我的手牌"></div>
           <div class="action-bar" id="action-bar"><div class="action-placeholder">轮到你时，操作会显示在这里</div></div>
+        </div>
+
+        <!-- 局前等待层：截图里的「换桌 / 准备」。开局照常在后台进行，这一层只让人先看清同桌；
+             点「准备」立刻收起，几秒后也会自动收起，不会阻塞对局。 -->
+        <div class="table-ready hidden" id="table-ready" role="group" aria-label="开局准备">
+          <div class="ready-seat ready-north"><i class="ready-face" id="ready-face-1">李</i><b id="ready-name-1">北家</b><span id="ready-rank-1">进士</span><em id="ready-coin-1">0</em></div>
+          <div class="ready-seat ready-west"><i class="ready-face" id="ready-face-3">赵</i><b id="ready-name-3">东家</b><span id="ready-rank-3">举人</span><em id="ready-coin-3">0</em></div>
+          <div class="ready-seat ready-east"><i class="ready-face" id="ready-face-2">梅</i><b id="ready-name-2">西家</b><span id="ready-rank-2">秀才</span><em id="ready-coin-2">0</em></div>
+          <div class="ready-seat ready-south"><i class="ready-face" id="ready-face-0">黯</i><b id="ready-name-0">我</b><span id="ready-rank-0">穷人</span><em id="ready-coin-0">0</em></div>
+          <div class="ready-center">
+            <p class="ready-bet" id="ready-bet">底注 2,000</p>
+            <div class="ready-actions">
+              <button class="ready-btn is-switch" id="ready-switch" type="button">换 桌</button>
+              <button class="ready-btn is-go" id="ready-go" type="button">准 备</button>
+            </div>
+            <p class="ready-tip" id="ready-tip">点「准备」立刻开局，稍等也会自动开始</p>
+          </div>
         </div>
 
         <div class="table-result-layer hidden" id="result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
@@ -484,7 +505,7 @@
         <div class="hidden-runtime" aria-hidden="true">
           <span id="side-score-0">0</span><span id="side-score-1">0</span><span id="side-score-2">0</span><span id="side-score-3">0</span>
         </div>
-        <button class="table-menu" id="rules-open-2" aria-label="打开规则设置" type="button">☰</button>
+        <!-- 右侧那颗圆形功能钮已按需求去掉；规则设置统一走顶栏的 ☰ -->
       </div>
     </section>
   </main>
@@ -560,6 +581,7 @@
     <label class="setting-row"><span><b>杠牌</b><small>明杠、暗杠、补杠，杠后补牌</small></span><input type="checkbox" id="setting-gang" checked><i></i></label>
     <label class="setting-row"><span><b>烂牌胡</b><small>14 张不重复，数牌按 147 / 258 / 369 分组</small></span><input type="checkbox" id="setting-badHu" checked><i></i></label>
     <label class="setting-row"><span><b>立直牌面</b><small>90 年代立直麻将机经典牌面（FluffyStuff，公有领域），立刻生效</small></span><input type="checkbox" id="setting-riichi" checked><i></i></label>
+    <label class="setting-row"><span><b>假 3D 牌桌</b><small>上窄下宽的梯形绒面桌 + 木框；关掉回到平面机台，立刻生效</small></span><input type="checkbox" id="setting-3d" checked><i></i></label>
     <div class="modal-actions"><button class="secondary-button" id="rules-cancel" type="button">取消</button><button class="primary-button" id="rules-save" type="button">保存设置</button></div>
   </div>
 </div>

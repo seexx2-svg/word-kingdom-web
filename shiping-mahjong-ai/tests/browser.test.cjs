@@ -545,21 +545,55 @@ test('牌墙：开牌位不再压"开牌"两个字', async () => {
   await page.close();
 });
 
-test('立直机皮肤：默认开（木框 + 深绿绒面），设置里关掉立刻回实景桌', async () => {
+test('牌桌皮肤：假 3D 梯形桌与立直机皮肤都能即时开关、偏好可持久化', async () => {
   const page = await openGame({ width: 1440, height: 900 });
-  const on = await page.evaluate(() => ({
-    cls: document.body.classList.contains('skin-riichi'),
+  /* v0.11.0 起木框与绒面画在伪元素上（clip-path 裁成梯形），
+     .table-frame / .felt 本体是透明的，所以不能再只读本体的 backgroundImage。 */
+  const on = await page.evaluate(() => {
+    const frame = document.querySelector('.table-frame');
+    const felt = document.querySelector('.felt');
+    return {
+      riichi: document.body.classList.contains('skin-riichi'),
+      d3: document.body.classList.contains('table-3d'),
+      wood: getComputedStyle(frame, '::before').backgroundImage,
+      woodClip: getComputedStyle(frame, '::before').clipPath,
+      feltFg: getComputedStyle(felt, '::before').backgroundImage,
+      feltClip: getComputedStyle(felt, '::before').clipPath,
+      bodyBg: getComputedStyle(document.body).backgroundImage,
+      riichiChecked: document.getElementById('setting-riichi').checked,
+      d3Checked: document.getElementById('setting-3d').checked
+    };
+  });
+  assert.equal(on.riichi, true, '立直牌面默认要开');
+  assert.equal(on.d3, true, '假 3D 牌桌默认要开');
+  assert.match(on.wood, /gradient/, '梯形木框要有木纹渐变');
+  assert.match(on.woodClip, /polygon/, '木框要裁成上窄下宽的梯形');
+  assert.match(on.feltFg, /gradient/, '绿绒面要有深绿渐变');
+  assert.match(on.feltClip, /polygon/, '绒面也要裁成梯形');
+  assert.match(on.bodyBg, /mahjong-room-3d/, '房间背景要换成风景 + 地面');
+  assert.ok(!/mahjong-table-bg/.test(on.bodyBg), '假 3D 模式不该再铺带桌子的整图');
+  assert.equal(on.riichiChecked, true, '立直开关要同步');
+  assert.equal(on.d3Checked, true, '3D 开关要同步');
+
+  /* 关掉 3D：一键回滚到平面机台，木框与绒面渐变回到元素本体 */
+  await page.evaluate(() => {
+    document.getElementById('rules-open').click();
+    document.getElementById('setting-3d').click();
+    document.getElementById('rules-close').click();
+  });
+  await page.waitForTimeout(150);
+  const flat = await page.evaluate(() => ({
+    d3: document.body.classList.contains('table-3d'),
     frameBg: getComputedStyle(document.querySelector('.table-frame')).backgroundImage,
     feltBg: getComputedStyle(document.querySelector('.felt')).backgroundImage,
-    bodyBg: getComputedStyle(document.body).backgroundImage,
-    checked: document.getElementById('setting-riichi').checked
+    stored: localStorage.getItem('shiping-mahjong-3d-v1')
   }));
-  assert.equal(on.cls, true, '皮肤默认要开');
-  assert.match(on.frameBg, /gradient/, '桌框要有木纹渐变');
-  assert.match(on.feltBg, /gradient/, '绒面要有深绿渐变');
-  assert.ok(!/mahjong-table-bg/.test(on.bodyBg), '机台模式下不该再铺实景照片：' + on.bodyBg.slice(0, 80));
-  assert.equal(on.checked, true, '设置面板的开关要同步');
+  assert.equal(flat.d3, false, '关掉后 body 要去掉 table-3d');
+  assert.match(flat.frameBg, /gradient/, '回滚后木框渐变回到 .table-frame 本体');
+  assert.match(flat.feltBg, /gradient/, '回滚后绒面渐变回到 .felt 本体');
+  assert.equal(flat.stored, 'off', '3D 偏好要记住');
 
+  /* 立直开关在平面机台上验证：3D 开着时 .table-frame 本来就是透明的，测不出差别 */
   await page.evaluate(() => {
     document.getElementById('rules-open').click();
     document.getElementById('setting-riichi').click();
@@ -577,19 +611,26 @@ test('立直机皮肤：默认开（木框 + 深绿绒面），设置里关掉�
   assert.equal(off.stored, 'off', '偏好要记住，下次进来还是关着的');
   assert.equal(off.checked, false, '开关状态要同步');
 
-  // 刷新页面验证偏好真的持久化
+  // 刷新页面验证两个偏好真的都持久化
   await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(600);
-  assert.equal(await page.evaluate(() => document.body.classList.contains('skin-riichi')), false, '刷新后仍是关着的');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('skin-riichi')), false, '刷新后立直仍是关着的');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('table-3d')), false, '刷新后 3D 仍是关着的');
 
-  // 再开回来，确认双向都能切
+  // 两个开关都能再开回来
   await page.evaluate(() => {
     document.getElementById('rules-open').click();
     document.getElementById('setting-riichi').click();
+    document.getElementById('setting-3d').click();
     document.getElementById('rules-close').click();
   });
   await page.waitForTimeout(150);
-  assert.equal(await page.evaluate(() => document.body.classList.contains('skin-riichi')), true, '再点一次要能开回来');
+  const back = await page.evaluate(() => ({
+    riichi: document.body.classList.contains('skin-riichi'),
+    d3: document.body.classList.contains('table-3d')
+  }));
+  assert.equal(back.riichi, true, '立直要能开回来');
+  assert.equal(back.d3, true, '3D 要能开回来');
   assert.deepEqual(page.__errors, [], '皮肤切换不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
