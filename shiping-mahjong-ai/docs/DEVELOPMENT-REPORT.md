@@ -636,9 +636,17 @@ npm run test:cloud      8 条全通过
 
 2. **直接开文件**：双击 `index.html` 也能玩，只是调试接口在 `file://` 下不启用。
 
-3. **独立在线预览（本次新部署，与 gh-pages 无关）**：
+3. **独立在线预览（v0.8.0 已覆盖更新，与 gh-pages 无关）**：
    <https://shiping-mahjong-ai.app.workbuddy.host/?sharecode=2MS3R37OYC>
    该地址由本次项目目录单独发布，原线上 `gh-pages`（`https://seexx2-svg.github.io/word-kingdom-web/`）**没有**被改动。
+
+   发布时踩了个坑，记在这里：`package.json` 里的 `serve` 脚本是给本地用的 `python3 -m http.server 8080`，**硬编码了 8080**。发布器会自动探测这个脚本当启动命令，于是沙箱里起在了 8080，而平台只认 `$PORT`（3000），报 `SITES_START_FAILED: port 3000 NOT listening`。而且沙箱执行 `startCmd` 时并没有把 `$PORT` 展开（实测被展开成空串），所以启动命令必须写成**字面端口**：
+
+   ```
+   startCmd = python3 -m http.server 3000 --bind 0.0.0.0
+   ```
+
+   本地的 `npm run serve` 保留不动，两边互不影响。
 
 4. 源码地址：<https://github.com/seexx2-svg/word-kingdom-web/tree/ai-mahjong-next/shiping-mahjong-ai>
 
