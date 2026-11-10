@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d2b1f">
-<meta name="description" content="石屏麻将 AI 版 —— 登录、赛季段位、银币结算与四人对局。">
-<title>石屏麻将 · 四人牌桌</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d2b1f'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23ffd77a' font-family='serif'%3E%E7%BA%A2%3C/text%3E%3C/svg%3E">
+<meta name="description" content="红河麻将 · 云南红河地方麻将 —— 登录、赛季段位、银币结算与四人对局。">
+<title>红河麻将 · 四人牌桌</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%230c5f40'/%3E%3Ccircle cx='16' cy='16' r='14.4' fill='none' stroke='%23e2bd75' stroke-width='1.6'/%3E%3Crect x='10.5' y='6.5' width='11' height='17' rx='2.6' fill='%23fffdf5'/%3E%3Ccircle cx='16' cy='12.6' r='2.6' fill='none' stroke='%231c6b4b' stroke-width='1.3'/%3E%3Ccircle cx='16' cy='12.6' r='1' fill='%23c8432f'/%3E%3Cpath d='M11.8 18.4c1.4-1 2.8-1 4.2 0s2.8 1 4.2 0M11.8 21.4c1.4-1 2.8-1 4.2 0s2.8 1 4.2 0' fill='none' stroke='%231c6b4b' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 <script defer src="js/core.js"></script>
 <script defer src="js/account.js"></script>
@@ -22,6 +22,29 @@
 
 <!-- ============================ 图标雪碧 ============================ -->
 <svg class="svg-sprite" aria-hidden="true" focusable="false">
+  <!-- 品牌标（红河麻将）：玉牌 + 金环 + 筒 + 两道水纹（红河）。
+       小到 24px 时只看得见"玉盘 + 金环 + 一张白牌 + 一点红"，
+       所以元素层级是刻意压到最少的：牌、红点、水纹，各占一个视觉重量。 -->
+  <symbol id="i-logo" viewBox="0 0 64 64">
+    <defs>
+      <linearGradient id="lgJade" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#2f936a"/><stop offset=".55" stop-color="#136a49"/><stop offset="1" stop-color="#063a26"/>
+      </linearGradient>
+      <linearGradient id="lgGold" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#fff0c6"/><stop offset=".48" stop-color="#e3bf78"/><stop offset="1" stop-color="#a3762f"/>
+      </linearGradient>
+      <linearGradient id="lgIvory" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#fffdf6"/><stop offset="1" stop-color="#ecdcbc"/>
+      </linearGradient>
+    </defs>
+    <circle cx="32" cy="32" r="31" fill="url(#lgJade)"/>
+    <circle cx="32" cy="32" r="28.8" fill="none" stroke="url(#lgGold)" stroke-width="2.6"/>
+    <rect x="20.4" y="9.6" width="23.2" height="33.2" rx="6" fill="url(#lgIvory)" stroke="url(#lgGold)" stroke-width="1.8"/>
+    <circle cx="32" cy="22" r="5.4" fill="none" stroke="#1c6b4b" stroke-width="2.5"/>
+    <circle cx="32" cy="22" r="2.1" fill="#c8432f"/>
+    <path d="M22.8 31.6c3-2.2 6.1-2.2 9.2 0 3.1 2.2 6.2 2.2 9.2 0" fill="none" stroke="#1c6b4b" stroke-width="2.1" stroke-linecap="round"/>
+    <path d="M22.8 37.4c3-2.2 6.1-2.2 9.2 0 3.1 2.2 6.2 2.2 9.2 0" fill="none" stroke="#c8432f" stroke-width="2.1" stroke-linecap="round" opacity=".92"/>
+  </symbol>
   <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#dfe6ef"/><circle cx="12" cy="12" r="9" fill="none" stroke="#a9b6c6" stroke-width="1.4"/><circle cx="12" cy="12" r="5.6" fill="#c7d2df"/><path d="M9.4 12.6c.7 1.4 3.9 1.4 4.6-.2.6-1.5-1.2-2-2.6-2.3-1.2-.3-2.3-.9-1.8-2 .6-1.3 3.2-1.3 4 0" fill="none" stroke="#7f8d9e" stroke-width="1.3" stroke-linecap="round"/></symbol>
   <symbol id="i-gold" viewBox="0 0 24 24"><rect x="2.5" y="7" width="19" height="10" rx="2.4" fill="#f6c945"/><rect x="2.5" y="7" width="19" height="4" rx="2" fill="#ffe083"/><rect x="2.5" y="7" width="19" height="10" rx="2.4" fill="none" stroke="#b8862a" stroke-width="1.1"/><circle cx="12" cy="12" r="2.6" fill="#fff1b8" stroke="#b8862a" stroke-width="1"/></symbol>
   <symbol id="i-shop" viewBox="0 0 24 24"><path d="M4 9h16l-1.4 10.2a2 2 0 0 1-2 1.8H7.4a2 2 0 0 1-2-1.8L4 9Z" fill="#f0b352"/><path d="M8.5 9a3.5 3.5 0 0 1 7 0" fill="none" stroke="#f0b352" stroke-width="2"/><path d="M9 13.5h6" stroke="#8a5a16" stroke-width="1.6" stroke-linecap="round"/></symbol>
@@ -55,7 +78,10 @@
     <div class="splash-vignette"></div>
   </div>
 
-  <div class="splash-logo" data-brand>石屏<span>·</span>麻将</div>
+  <div class="splash-brand">
+    <svg class="sb-mark" aria-hidden="true"><use href="#i-logo"/></svg>
+    <div class="splash-logo" data-brand>石屏<span>·</span>麻将</div>
+  </div>
 
   <div class="splash-foot">
     <button class="splash-btn btn-wechat" id="btn-wechat" type="button">
@@ -162,7 +188,12 @@
 <!-- ============================ 5. 主界面 ============================ -->
 <section class="screen home hidden" id="screen-home">
   <header class="lobby-top">
-    <div class="player-chip" id="home-player" role="button" tabindex="0" aria-label="账号与本机存档">
+    <div class="home-brand">
+      <svg class="hb-mark" aria-hidden="true"><use href="#i-logo"/></svg>
+      <span class="hb-text"><b>红河麻将</b><i>云南 · 红河</i></span>
+    </div>
+
+    <div class="player-chip" id="home-player" role="button" tabindex="0" aria-label="账号与本机存档，点一下可改昵称">
       <div class="player-avatar" id="home-avatar">黯</div>
       <div class="player-meta">
         <div class="player-line">
@@ -203,15 +234,25 @@
     <button class="am-item danger" id="am-clear" type="button" role="menuitem">清空本机存档</button>
   </div>
   <div class="lobby">
-    <div class="lobby-brand">
-      <strong data-brand>石屏麻将</strong>
-      <small>云南红河 · 石屏规则 · 四人一桌</small>
-    </div>
+    <div class="lobby-hero">
+      <div class="lobby-brand">
+        <strong>石屏麻将</strong>
+        <small>红河 · 石屏规则 · 136 张 · 四人一桌</small>
+      </div>
 
-    <div class="lobby-nickrow">
-      <label for="lobby-nick">昵称</label>
-      <input id="lobby-nick" type="text" maxlength="12" autocomplete="nickname" placeholder="取个名字，或让系统分配">
-      <button id="lobby-nick-random" type="button">随机</button>
+      <!-- 三种玩法：石屏已开放，宝秀 / 个旧留位置。
+           拿到真实规则后只要把 is-locked 去掉、接上 core.js 里的 variant 即可。 -->
+      <div class="lobby-modes" id="lobby-modes" role="tablist" aria-label="选择玩法">
+        <button class="mode-card is-on" type="button" role="tab" aria-selected="true" data-variant="shiping">
+          <b>石屏麻将</b><small>吃碰杠全开 · 烂牌胡</small>
+        </button>
+        <button class="mode-card is-locked" type="button" role="tab" aria-selected="false" data-variant="baoxiu">
+          <i class="mc-lock" aria-hidden="true">锁</i><b>宝秀麻将</b><small>规则整理中</small>
+        </button>
+        <button class="mode-card is-locked" type="button" role="tab" aria-selected="false" data-variant="gejiu">
+          <i class="mc-lock" aria-hidden="true">锁</i><b>个旧麻将</b><small>规则整理中</small>
+        </button>
+      </div>
     </div>
 
     <div class="lobby-actions">

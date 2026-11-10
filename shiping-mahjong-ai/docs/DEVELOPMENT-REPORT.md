@@ -1,8 +1,11 @@
-# 石屏麻将 · ai-mahjong-next 开发报告
+# 红河麻将（原「石屏麻将」）· ai-mahjong-next 开发报告
 
 > 分支：`ai-mahjong-next`　目录：`shiping-mahjong-ai/`
 > 基线：`shiping-mahjong` 分支（提交 `845dd27`）的完整源码
-> 版本：`0.2.0`（`package.json`）
+> 版本：`0.9.0`（`package.json`）
+>
+> 品牌说明：v0.9.0 起平台统一叫「**红河麻将**」（石屏 / 宝秀 / 个旧都在红河州），
+> 「石屏麻将」降级为其中一种玩法名。下面早于 v0.9.0 的章节仍按当时的叫法记录，未回改。
 
 ---
 
@@ -623,6 +626,70 @@ npm run test:cloud      8 条全通过
 另外顺手修了一条存量用例的偶发失败：`tests/browser.test.cjs` 的「手牌 hover 不位移」原来用「弃牌总数」当进度指针，但打出的牌可能立刻被下家吃走，牌河反而变少 → 改成 `discards + melds` 之和，并用 `current` / `phase` 变化兜底。
 
 还有一个新的偶发源：云 SDK 是从公共 CDN（jsdelivr）拉的，CDN 抽风时 `requestfailed` 会记一条 `net::ERR_CONNECTION_CLOSED`，让**跟云端毫无关系**的用例（比如「对手出牌后局面推进」）变红。这跟之前的 `CLOUD_NOISE` 是同一类问题——环境边界，不是脚本错误——所以把 CDN 域名与 `net::ERR_CONNECTION_*` 一起并进了噪声过滤器。过滤只针对网络层，本地资源 404 之类的真错误照样会冒出来；真实的云端连通性仍由 `tests/cloud-live.cjs` 在发布域名上验。加完之后连跑三轮 `44/44`。
+
+## 五之后（六）：品牌、首页、三种玩法与那个"换桌"浮层（v0.9.0）
+
+### 5.30 名字：为什么是「红河麻将」
+
+石屏、宝秀、个旧三个玩法都在**红河州**：石屏县、宝秀镇（属石屏）、个旧市。要往一个 App 里塞三种地方麻将，用一个县级名字当平台名是拧巴的——所以拆成两层：
+
+- **平台名 = 红河麻将**（`js/ui.js` 里的 `BRAND`，`[data-brand]` 由 `applyBrand()` 统一填）；
+- **玩法名 = 石屏麻将 / 宝秀麻将 / 个旧麻将**（`js/core.js` 的 `VARIANTS`）。
+
+这样以后加宝秀、个旧，不用再改一次品牌。备选名还有「滇南麻将」「临安牌局」，选了「红河」是因为它对三个玩法都成立、且本地人一看就知道是家乡牌。
+
+### 5.31 Logo：元素越少越立得住
+
+标画在 `index.html` 的 SVG 雪碧里（`#i-logo`），不额外请求图片。构图按"能不能在 24px 认出来"倒推：
+
+1. 玉绿圆盘（径向渐变）+ 金色双环——远看是一个"牌九/筹码"的圆；
+2. 中间一张竖着的象牙色麻将牌；
+3. 牌面上一个「筒」（绿环 + 红心）；
+4. 牌面下部两道水纹，一绿一红——红河。
+
+前两版画复杂了（牌里再套牌、加祥云），缩到 32px 就成灰点。现在这一版在 16px 只剩"绿点 + 白牌"，但轮廓仍成立；180px 下单看也不寒酸。左上角、启动页、浏览器 favicon 用的是同一个符号，favicon 是同一套形状压成的 data URI。
+
+### 5.32 那个"开局后中间冒出换桌 / 分享好友"，是 CSS 权重
+
+上一轮为了让结算面板不被牌桌裁掉，我写了：
+
+```css
+#result-modal.table-result-layer{ display:flex!important; ... }
+```
+
+而"关掉它"靠的是更早的一条 `.table-result-layer.hidden{ display:none!important }`。两条都带 `!important` 时比的是**选择器权重**：`#result-modal.table-result-layer` 是「id + class」，`.table-result-layer.hidden` 是「class + class」——前者赢。于是 `hidden` 类加了等于没加，结算层从进桌那一刻就一直铺在牌桌中间，那三个按钮（换桌 / 分享好友 / 继续）自然一直挂着。
+
+修法不是删 `!important`（那会退回"牌桌比视口高时按钮被裁"的老问题），而是补一条**同权重**的隐藏规则：
+
+```css
+#result-modal.table-result-layer.hidden{ display:none!important }
+```
+
+用例用 `getComputedStyle(...).display === 'none'` 钉住，再加一条 `elementFromPoint` 验手牌点得到——浮层如果在，整屏都会拦截点击，这条比看 `display` 更接近"玩家真的能操作"。
+
+### 5.33 首页改版与布局统一
+
+- **昵称框删了**：改昵称本来就有一套（点头像 → 账号浮层 → 改昵称），大厅再放一个输入框是两套入口。相应地 `lobbyNickValue()` 改成直接取档案昵称，`doRandomNick()` 整个删掉。
+- **三种玩法**：`.lobby-modes` 是三列网格，石屏实心金边 + 底部指示条，宝秀 / 个旧虚线边框 + 右上角「锁」。**没有用 `disabled`**——灰掉的按钮会被读成"功能坏了"，现在能点、点了一句"规则还在整理"，并且不会抢走选中态。
+- **布局统一**：原来大厅的两栏布局只在 `@media (orientation:landscape) and (max-height:560px)` 下生效，于是电脑宽屏（1440×900）是一根竖条、手机横过来又是另一套。改成只判 `orientation:landscape`，两边长得一样；竖屏窄屏才回退单栏，顶栏用 `order` 拆成两行（品牌 + 领银币 + 声音 / 账号条），DOM 顺序没动。
+- **`flex-wrap` 的坑**：改成两栏后内容被顶到屏幕上半部分——因为多行 flex 容器的 `align-content` 默认是 `stretch`，四行均分高度、每行内部再居中。加 `align-content:center` 才真正垂直居中。
+- **银币到账**：`playSound` 的音色表里原本**没有** `coin`，`bank[kind] || bank.ui` 让"领银币"退化成一个极短的 880Hz 提示音，基本听不出是钱。补了一条三音叠加（988 → 1319 → 1976Hz，B5 → E6 上行五度 + 高频泛音），并在按钮下方飘一个 `+4,000`、钱包数字弹一下。
+
+### 5.34 这一轮的测试
+
+```
+npm test              118 条全通过
+npm run test:browser   49 条全通过（外壳新增 5 条）
+npm run test:cloud      8 条全通过
+```
+
+新增的五条都在外壳层，验的是"玩家眼睛里能看到的东西"：
+
+1. 品牌标真的是 SVG、真的在左上角（`left < 80 && top < 40`）、网页标题是「红河麻将」、头像浮层里仍有「改昵称」；
+2. 三格玩法：只有一个选中、两个锁、点锁的那格要有说明且不能抢走选中态；
+3. 免费领银币：**直接数 `AudioContext.createOscillator` 被调用几次**（≥3 才算响了一声），再加 `+4,000` 飘字与计数 `1/10`；
+4. 结算浮层回归：`display === 'none'` + `elementFromPoint` 命中手牌；
+5. 1440×900 与 844×390 的 `.lobby` 都必须是 `flex-direction: row`、品牌名 `text-align: left`。
 
 ## 六、试玩方式
 

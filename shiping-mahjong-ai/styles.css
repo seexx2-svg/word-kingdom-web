@@ -1441,7 +1441,9 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   linear-gradient(180deg,rgba(16,40,66,.34),rgba(10,26,18,.06) 42%,rgba(4,14,10,.72) 88%,#04100b),
   radial-gradient(ellipse at 50% 40%,rgba(255,235,190,.16),rgba(0,0,0,.28) 78%)}
 
-.splash-logo{position:absolute;left:4.2%;top:4%;z-index:3;font-size:clamp(20px,2.6vw,34px);font-weight:900;letter-spacing:.04em;
+.splash-brand{position:absolute;left:4.2%;top:4%;z-index:3;display:flex;align-items:center;gap:10px}
+.sb-mark{width:clamp(34px,4vw,48px);height:clamp(34px,4vw,48px);flex:0 0 auto;filter:drop-shadow(0 3px 9px #001a0ecc)}
+.splash-logo{position:static;left:auto;top:auto;z-index:auto;font-size:clamp(20px,2.6vw,34px);font-weight:900;letter-spacing:.04em;
   color:#eaf6ff;text-shadow:0 2px 0 #b6e4ff,0 4px 10px #0a3f6eaa,0 0 22px #7fd0ff66;
   background:linear-gradient(180deg,#ffffff,#bfe9ff 46%,#5bc0f5 78%,#2f9edd);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
   filter:drop-shadow(0 2px 0 #1c4f7d)}
@@ -2207,19 +2209,46 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
    其余（个旧/宝秀、天梯、商城、比赛、约牌）全部下线，不做置灰占位。
    ===================================================================== */
 .screen.home{background:radial-gradient(ellipse at 50% 22%,#1d4634,#081b14 72%)}
-.lobby-top{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:14px 18px 6px;position:relative;z-index:44}
+.lobby-top{flex:0 0 auto;display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;padding:14px 18px 6px;position:relative;z-index:44}
 .lobby-top .player-chip{z-index:1}
 .lobby-sound{margin-left:0;flex:0 0 auto}
+
+/* 品牌标：左上角统一标识（图标 + 名字），跟内容页/牌桌上的叫法保持同一套 */
+.home-brand{display:flex;align-items:center;gap:8px;min-width:0;flex:0 0 auto}
+.hb-mark{width:34px;height:34px;flex:0 0 auto;filter:drop-shadow(0 2px 5px #0009)}
+.hb-text{display:flex;flex-direction:column;line-height:1.1;min-width:0}
+.hb-text b{font-size:15px;letter-spacing:.14em;color:#ffe6b0;text-shadow:0 1px 0 #6d4315,0 3px 10px #0008;white-space:nowrap}
+.hb-text i{font-style:normal;font-size:9px;letter-spacing:.2em;color:#c9b184;margin-top:2px;white-space:nowrap}
+
 .lobby{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(10px,2.2vh,22px);padding:8px 18px clamp(18px,4vh,40px);position:relative;z-index:41}
+.lobby-hero{display:flex;flex-direction:column;align-items:center;gap:clamp(10px,1.8vh,16px);width:100%;min-width:0}
 .lobby-brand{text-align:center;line-height:1.15}
 .lobby-brand strong{display:block;font-size:clamp(26px,5.2vw,42px);letter-spacing:.18em;color:#ffe6b0;text-shadow:0 2px 0 #7a4d18,0 8px 22px #000a}
 .lobby-brand small{display:block;margin-top:8px;font-size:12px;letter-spacing:.22em;color:#c9b184}
-.lobby-nickrow{display:flex;align-items:center;gap:8px;width:min(430px,94vw);padding:8px 10px;border-radius:14px;background:#04180f96;border:1px solid #e2c68a4d}
-.lobby-nickrow label{font-size:12px;color:#d9c295;letter-spacing:.1em;flex:0 0 auto}
-.lobby-nickrow input{flex:1;min-width:0;height:34px;border-radius:9px;border:1px solid #e2c68a55;background:#0b2a1e;color:#ffeecb;font-size:14px;padding:0 10px;letter-spacing:.06em}
-.lobby-nickrow input:focus{outline:2px solid #e8c37e88;border-color:#e8c37e}
-.lobby-nickrow button{flex:0 0 auto;height:34px;padding:0 14px;border-radius:9px;border:1px solid #e2c68a66;background:#1d4433;color:#f0d9a8;font-size:13px}
-.lobby-nickrow button:active{transform:translateY(1px)}
+
+/* 三种玩法并排：已开放的实心金边，没开放的虚线 + 锁标（不要灰成"点不动"，
+   灰色按钮会被读成功能坏了，点了给一句解释更好懂） */
+.lobby-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:min(430px,94vw)}
+.mode-card{
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  height:clamp(50px,8.4vh,62px);padding:0 6px;border-radius:13px;overflow:hidden;
+  border:1px solid #e2c68a3d;background:#04180f99;color:#cfdccd;
+}
+.mode-card b{font-size:14px;letter-spacing:.06em;white-space:nowrap}
+.mode-card small{max-width:100%;font-size:9px;letter-spacing:.02em;color:#8fa797;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mode-card.is-on{
+  border-color:#ffd98fb3;background:linear-gradient(#2b6046,#123324);color:#ffe9bd;
+  box-shadow:0 5px 16px #0007,inset 0 1px 0 #fff2;
+}
+.mode-card.is-on small{color:#d9c295}
+.mode-card.is-on:after{content:'';position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:30px;height:2px;border-radius:2px 2px 0 0;background:#ffd98f}
+.mode-card.is-locked{border-style:dashed;border-color:#e2c68a33;opacity:.78}
+.mode-card.is-locked b{color:#b3c4b3;font-weight:700}
+.mode-card.is-locked:active{transform:translateY(1px)}
+.mc-lock{
+  position:absolute;right:5px;top:5px;font-style:normal;font-size:8px;line-height:1;
+  padding:2px 3px;border-radius:4px;background:#0000005c;color:#e8c37e;letter-spacing:.04em;
+}
 .lobby-actions{display:flex;flex-direction:column;gap:12px;width:min(430px,94vw)}
 .lobby-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:clamp(62px,11vh,78px);border-radius:16px;border:1px solid #e2c68a5c;background:linear-gradient(#1e4a36,#0d2a1f);color:#f6e2b6;box-shadow:0 6px 18px #0008,inset 0 1px 0 #ffffff1a}
 .lobby-btn b{font-size:20px;letter-spacing:.14em}
@@ -2232,18 +2261,22 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 .lobby-status.warn{color:#ffb59a}
 .lobby-hint{font-size:12px;color:#a9beaf;text-align:center;margin:0;letter-spacing:.02em}
 
-/* 手机横屏：大厅改成左右两栏，避免竖着堆两层按钮把屏幕占满 */
-@media (orientation:landscape) and (max-height:560px){
-  .lobby-top{padding:8px 14px 2px}
-  .lobby{gap:8px;padding:4px 14px 10px;flex-direction:row;align-items:center;justify-content:space-evenly;flex-wrap:wrap}
-  .lobby-brand{flex:1 1 40%;text-align:left}
-  .lobby-brand strong{font-size:clamp(20px,3.4vw,30px)}
-  .lobby-brand small{font-size:10px;margin-top:4px}
-  .lobby-nickrow,.lobby-actions{width:min(340px,48vw)}
-  .lobby-btn{height:clamp(46px,13vh,60px)}
+/* 横屏（手机横过来、电脑宽屏都算）：大厅改成左右两栏——左边"品牌 + 三种玩法"，
+   右边两个入口。以前这条只在 max-height:560px 时生效，结果电脑上打开是一根竖条、
+   跟手机横屏完全是两套样子；现在统一按"宽比高大"来判，两边长得一样。 */
+@media (orientation:landscape){
+  .lobby-top{padding:10px 16px 4px}
+  .lobby{gap:0;column-gap:clamp(16px,3vw,34px);row-gap:clamp(8px,1.8vh,16px);padding:6px 18px 14px;flex-direction:row;align-items:center;justify-content:center;align-content:center;flex-wrap:wrap}
+  .lobby-hero{flex:1 1 46%;max-width:600px;align-items:flex-start;gap:10px}
+  .lobby-brand{text-align:left}
+  .lobby-brand strong{font-size:clamp(21px,3.4vw,34px)}
+  .lobby-brand small{font-size:10.5px;margin-top:5px;letter-spacing:.16em}
+  .lobby-modes{width:100%}
+  .lobby-actions{width:min(340px,42vw);gap:10px}
+  .lobby-btn{height:clamp(46px,13vh,66px)}
   .lobby-btn b{font-size:17px}
   .lobby-btn small{font-size:10px}
-  .lobby-status,.lobby-hint{flex-basis:100%;min-height:0}
+  .lobby-status,.lobby-hint{flex-basis:100%;min-height:0;text-align:center}
 }
 
 /* 手机横屏的牌桌：顶栏压扁、手牌缩小、座位卡片收窄，保证 14 张牌完整可见 */
@@ -2276,11 +2309,10 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 /* 账号浮层要盖在 .lobby（z-index:41）之上，否则点不到「改昵称」 */
 .screen.home .account-menu{z-index:60;top:70px}
 
-/* 横屏微调：左边品牌、中间昵称、右边两个按钮，别让按钮那列挤成一条 */
+/* 矮横屏再收一档：手机横过来时高度只有 390 上下，牌子放大的话两个入口会被压扁 */
 @media (orientation:landscape) and (max-height:560px){
-  .lobby-brand{flex:1 1 32%;text-align:left}
-  .lobby-nickrow{width:min(300px,36vw)}
-  .lobby-actions{width:min(330px,38vw);gap:8px}
+  .lobby-top{padding:8px 14px 2px;gap:8px}
+  .lobby-actions{width:min(330px,40vw);gap:8px}
   .lobby-status{font-size:12px}
 }
 
@@ -2375,6 +2407,11 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   padding:10px!important;border:0!important;border-radius:0!important;
   background:rgba(2,16,11,.55)!important;backdrop-filter:blur(2px)!important;z-index:70!important;
 }
+/* 上面这条 display:flex!important 的选择器是"id + class"，权重高于
+   .table-result-layer.hidden 的"class + class"，于是 .hidden 再也关不掉这个浮层——
+   开局后在牌桌中间一直挂着"换桌 / 分享好友"就是从这来的。
+   必须补一条同权重的 .hidden 规则把它压回去。 */
+#result-modal.table-result-layer.hidden{display:none!important}
 #result-modal .result-sheet{
   max-height:calc(100vh - 20px)!important;overflow:hidden!important;
   width:min(880px,100%)!important;
@@ -2445,4 +2482,54 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
   .lobby-top{padding:6px 12px 0;gap:8px}
   .lobby-free{height:32px;padding:0 10px}
   .lobby-free .lf-text b{font-size:11px}
+}
+
+/* 窄竖屏：顶栏一行放不下"品牌 + 账号 + 领银币 + 声音"，拆成两行——
+   第一行品牌标在左、领银币和声音在右；第二行账号条（头像在这里，点它改昵称）。
+   用 order 调视觉顺序，DOM 顺序不用动。 */
+@media (max-width:560px) and (orientation:portrait){
+  .lobby-top{padding:10px 12px 4px;gap:8px}
+  .lobby-top .home-brand{order:1;flex:0 0 auto}
+  .lobby-top .lobby-free{order:2}
+  .lobby-top .lobby-sound{order:3}
+  .lobby-top .player-chip{order:4;margin-right:0}
+  .hb-mark{width:30px;height:30px}
+  .hb-text b{font-size:13px;letter-spacing:.1em}
+  .hb-text i{font-size:8px;letter-spacing:.12em}
+  .lobby-modes{gap:6px;width:100%}
+  .mode-card{height:52px;padding:0 4px;border-radius:11px}
+  .mode-card b{font-size:12.5px;letter-spacing:.02em}
+  .mode-card small{font-size:8px}
+  .mc-lock{font-size:7px;padding:1px 2px;right:4px;top:4px}
+}
+
+/* =====================================================================
+   17. 银币到账反馈（v0.9.0）
+
+   点「免费领银币」时，光靠一条 toast 说不太清"钱真的进来了"：
+     · 按钮下方飘一个 +4,000，往上淡出；
+     · 顶栏钱包数字弹一下。
+   声音在 js/ui.js 的 playSound('coin') 里，这一节只管画面。
+   ===================================================================== */
+.coin-pop{
+  position:fixed;z-index:95;pointer-events:none;
+  transform:translate(-50%,0);
+  font-size:19px;font-weight:900;letter-spacing:.02em;color:#ffdf9b;
+  text-shadow:0 2px 6px #000a,0 0 14px #ffbe4d55;
+  animation:coinFloat .92s cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes coinFloat{
+  0%{opacity:0;transform:translate(-50%,6px) scale(.9)}
+  22%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-48px) scale(1.06)}
+}
+.wallet-item b.is-bump{animation:coinBump .52s ease-out}
+@keyframes coinBump{
+  0%{transform:scale(1)}
+  35%{transform:scale(1.22);color:#ffe9a8}
+  100%{transform:scale(1)}
+}
+@media (prefers-reduced-motion:reduce){
+  .coin-pop{animation:none;opacity:1;transform:translate(-50%,-30px)}
+  .wallet-item b.is-bump{animation:none}
 }

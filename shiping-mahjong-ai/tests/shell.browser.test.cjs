@@ -133,8 +133,9 @@ test('大厅：只留两个入口（快速匹配 / 快速人机），其余玩�
   assert.equal(await text(page, '#home-rank'), '新秀一阶');
   assert.match(await text(page, '#lobby-hint'), /登录|手机号|人机/, '不能连真人时要说明原因');
 
-  const nick = await page.inputValue('#lobby-nick');
-  assert.ok(nick && nick.length >= 2, '昵称框要有默认名字，实际：' + nick);
+  assert.equal(await exists(page, '#lobby-nick'), false, '大厅不再放昵称输入框（改昵称在左上角头像）');
+  assert.equal(await exists(page, '#screen-home .lobby-nickrow'), false, '昵称行整块拿掉');
+
   assert.equal(await page.isDisabled('#lobby-match'), false, '未登录也不灰按钮：点一下弹登录并说明原因');
   await page.click('#lobby-match');
   await page.waitForSelector('#login-modal:not(.hidden)', { timeout: 5000 });
@@ -406,19 +407,22 @@ test('手机竖屏：大厅两个按钮都在屏内，不横向溢出', async ()
   const layout = await page.evaluate(() => {
     const doc = document.documentElement;
     const btns = Array.from(document.querySelectorAll('.lobby-btn')).map((el) => el.getBoundingClientRect());
-    const nick = document.querySelector('.lobby-nickrow').getBoundingClientRect();
+    const modes = document.querySelectorAll('.mode-card');
+    const modeRects = Array.from(modes).map((el) => el.getBoundingClientRect());
     return {
       scrollW: doc.scrollWidth, inner: innerWidth,
       count: btns.length,
       inView: btns.filter((r) => r.left >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1).length,
-      nickIn: nick.left >= -1 && nick.right <= innerWidth + 1,
+      modeCount: modes.length,
+      modesIn: modeRects.filter((r) => r.left >= -1 && r.right <= innerWidth + 1).length,
       gap: btns.length === 2 ? Math.round(btns[1].top - btns[0].bottom) : -1
     };
   });
   assert.equal(layout.count, 2, '手机端也是两个入口');
   assert.equal(layout.inView, 2, '两个按钮都要完整在屏内');
   assert.ok(layout.scrollW <= layout.inner + 2, '不应出现横向滚动，实际 ' + layout.scrollW + ' vs ' + layout.inner);
-  assert.equal(layout.nickIn, true, '昵称框不应超出屏幕');
+  assert.equal(layout.modeCount, 3, '三种玩法各占一格');
+  assert.equal(layout.modesIn, 3, '三格玩法都要在屏内');
   assert.ok(layout.gap >= 0, '两个按钮要分开，别叠在一起');
   assert.deepEqual(page.__errors, [], '手机端不应报错：' + page.__errors.join(' | '));
   await page.close();
@@ -499,4 +503,178 @@ test('手机横屏：大厅装得下，牌桌 14 张手牌完整可见', async (
   assert.equal(table.barOverHand, false, '操作条不能压在手牌上');
   assert.deepEqual(page.__errors, [], '横屏不应报错：' + page.__errors.join(' | '));
   await page.close();
+});
+
+/* ---------------- v0.9.0：品牌标 / 三种玩法 / 银币声 / 结算浮层回归 ---------------- */
+
+test('首页：左上角是统一品牌标（红河麻将 + logo），昵称改到头像里', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await registerByClick(page);
+  await page.click('#reward-ok');
+  await page.click('#screen-season');
+  await page.click('#screen-inherit');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home');
+
+  const brand = await page.evaluate(() => {
+    const box = document.querySelector('.home-brand');
+    if (!box) return null;
+    const mark = box.querySelector('.hb-mark');
+    const r = box.getBoundingClientRect();
+    return {
+      name: (box.querySelector('.hb-text b') || {}).textContent || '',
+      hasSvg: !!mark && mark.tagName.toLowerCase() === 'svg',
+      w: Math.round(r.width), h: Math.round(r.height),
+      left: Math.round(r.left), top: Math.round(r.top)
+    };
+  });
+  assert.ok(brand, '首页要有品牌标');
+  assert.equal(brand.name, '红河麻将', '统一叫红河麻将（石屏 / 宝秀 / 个旧都在红河）');
+  assert.equal(brand.hasSvg, true, '品牌标要用 SVG 图标，不是文字方块');
+  assert.ok(brand.left < 80, '品牌标要贴在左上角，实际 left=' + brand.left);
+  assert.ok(brand.top < 40, '品牌标要在顶栏内，实际 top=' + brand.top);
+  assert.ok(brand.w >= 70 && brand.h >= 26, '品牌标不该被压没了');
+
+  assert.match(await page.title(), /红河麻将/, '网页标题跟着改');
+  assert.equal((await shell(page)).screen, 'home');
+
+  // 改昵称只留在头像浮层里
+  await page.click('#home-player');
+  await page.waitForTimeout(200);
+  assert.equal(await exists(page, '#account-menu:not(.hidden)'), true, '点头像要开账号浮层');
+  assert.match(await text(page, '#am-rename'), /改昵称/, '浮层里要能改昵称');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  assert.deepEqual(page.__errors, [], '首页不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('首页：宝秀 / 个旧各留一个位置，点了说明还没开放，石屏仍是选中态', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await registerByClick(page);
+  await page.click('#reward-ok');
+  await page.click('#screen-season');
+  await page.click('#screen-inherit');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home');
+
+  assert.equal(await count(page, '#lobby-modes .mode-card'), 3, '三格：石屏 / 宝秀 / 个旧');
+  assert.equal(await count(page, '#lobby-modes .mode-card.is-on'), 1, '只有一个选中');
+  assert.equal(await count(page, '#lobby-modes .mode-card.is-locked'), 2, '另外两个是未开放位');
+  assert.match(await text(page, '[data-variant="baoxiu"] b'), /宝秀/);
+  assert.match(await text(page, '[data-variant="gejiu"] b'), /个旧/);
+  assert.equal(await page.isDisabled('[data-variant="baoxiu"]'), false, '未开放也不灰死：点了要给解释');
+
+  await page.click('[data-variant="gejiu"]');
+  await page.waitForTimeout(200);
+  const status = await text(page, '#lobby-status');
+  assert.match(status || '', /个旧/, '点个旧要有说明，实际：' + status);
+  assert.equal(await count(page, '#lobby-modes .mode-card.is-on'), 1, '点未开放的不该抢走选中态');
+  assert.equal(await page.evaluate(() => document.querySelector('[data-variant="shiping"]').classList.contains('is-on')), true, '石屏仍开着');
+  assert.deepEqual(page.__errors, [], '玩法格不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('免费领银币：点一下就进账，并且真的响了一声银币到账', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await registerByClick(page);
+  await page.click('#reward-ok');
+  await page.click('#screen-season');
+  await page.click('#screen-inherit');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home');
+
+  // 数一数到底有没有振荡器被创建（音效就是靠它发声的）
+  await page.evaluate(() => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    window.__osc = 0;
+    const raw = AC.prototype.createOscillator;
+    AC.prototype.createOscillator = function () { window.__osc += 1; return raw.call(this); };
+  });
+
+  const before = (await shell(page)).account.coins;
+  await page.click('#lobby-free');
+  await page.waitForTimeout(260);
+  const pop = await page.evaluate(() => {
+    const el = document.querySelector('.coin-pop');
+    return el ? el.textContent : null;
+  });
+  assert.match(pop || '', /\+4,000/, '要飘一个"到账"的提示，实际：' + pop);
+  await page.waitForTimeout(300);
+  const after = await shell(page);
+  assert.equal(after.account.coins - before, 4000, '点一次 +4,000');
+  assert.match(await text(page, '#lobby-free-count'), /1\/10/, '计数要跟着走');
+  const osc = await page.evaluate(() => window.__osc);
+  assert.ok(osc >= 3, '银币到账要有一声（三个音叠出来的"叮—叮"），实际振荡器 ' + osc);
+  assert.deepEqual(page.__errors, [], '领银币不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('牌桌回归：开局后中间不该挂着"换桌 / 分享好友"（结算浮层必须关着）', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await registerByClick(page);
+  await page.click('#reward-ok');
+  await page.click('#screen-season');
+  await page.click('#screen-inherit');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home');
+
+  await page.evaluate(() => window.__shipingMahjongSetSpeed(0));
+  await page.click('#lobby-ai');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'table', null, { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 20000 });
+
+  const vis = await page.evaluate(() => {
+    const modal = document.querySelector('#result-modal');
+    const cs = getComputedStyle(modal);
+    const btn = document.querySelector('#result-share').getBoundingClientRect();
+    return {
+      display: cs.display,
+      hiddenCls: modal.classList.contains('hidden'),
+      // 元素在视口正中且尺寸可观 = 玩家真的看得见
+      shareVisible: btn.width > 0 && btn.height > 0
+    };
+  });
+  assert.equal(vis.hiddenCls, true, '结算层应带 hidden');
+  assert.equal(vis.display, 'none', 'hidden 必须真的把浮层藏掉（这条曾经被 !important 盖掉）');
+  assert.equal(vis.shareVisible, false, '「分享好友」按钮不该出现在牌桌上');
+
+  // 手牌要能点（浮层在的话会整屏拦截点击）
+  const clickable = await page.evaluate(() => {
+    const t = document.querySelector('#hand-tiles .tile-face');
+    if (!t) return 'no-tile';
+    const r = t.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { hit: !!top && (top === t || t.contains(top)), tag: top ? top.className : null };
+  });
+  assert.equal(clickable.hit, true, '手牌要能点得到（不被浮层挡住），实际命中：' + clickable.tag);
+  assert.deepEqual(page.__errors, [], '牌桌不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('电脑宽屏与手机横屏用同一套左右两栏大厅', async () => {
+  const wide = await freshPage({ width: 1440, height: 900 });
+  await wide.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_wide_1', 'abcd1234', '宽屏', true);
+    window.__shipingMahjongSkipSeason();
+  });
+  await wide.waitForTimeout(300);
+  const a = await wide.evaluate(() => ({
+    dir: getComputedStyle(document.querySelector('.lobby')).flexDirection,
+    brandAlign: getComputedStyle(document.querySelector('.lobby-brand')).textAlign
+  }));
+  await wide.close();
+
+  const phone = await freshPage({ width: 844, height: 390 });
+  await phone.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_wide_2', 'abcd1234', '横屏', true);
+    window.__shipingMahjongSkipSeason();
+  });
+  await phone.waitForTimeout(300);
+  const b = await phone.evaluate(() => ({
+    dir: getComputedStyle(document.querySelector('.lobby')).flexDirection,
+    brandAlign: getComputedStyle(document.querySelector('.lobby-brand')).textAlign
+  }));
+  await phone.close();
+
+  assert.equal(a.dir, 'row', '电脑宽屏应该是左右两栏，实际 ' + a.dir);
+  assert.equal(b.dir, 'row', '手机横屏也是左右两栏，实际 ' + b.dir);
+  assert.equal(a.brandAlign, 'left', '宽屏品牌名靠左');
+  assert.equal(b.brandAlign, 'left', '横屏品牌名靠左');
 });

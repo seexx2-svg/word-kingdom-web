@@ -23,8 +23,9 @@
   const A = window.HongheAccount;
   const Auth = window.HongheAuth;
 
-  /* 品牌名只在这里改：index.html 里的 [data-brand] 占位由 applyBrand() 统一填充 */
-  const BRAND = { title: '石屏麻将 · 四人牌桌', html: '石屏<span>·</span>麻将' };
+  /* 品牌名只在这里改：index.html 里的 [data-brand] 占位由 applyBrand() 统一填充。
+     石屏 / 宝秀 / 个旧都在红河州，所以平台叫「红河麻将」，桌上那一局仍叫「石屏麻将」。 */
+  const BRAND = { title: '红河麻将 · 四人牌桌', html: '红河<span>·</span>麻将' };
 
   /* 电脑的节奏。之前 700~780ms 一手，四家连着走像快进，看不清谁打了什么；
    * 现在放慢到 1.3~1.8 秒，并带 ±12% 的抖动，避免整齐得像机器。
@@ -270,7 +271,10 @@
         chi: [[420, 0, 0.08, 0.028, 'sine'], [560, 0.07, 0.09, 0.03, 'sine']],
         peng: [[520, 0, 0.07, 0.032, 'triangle'], [760, 0.065, 0.1, 0.032, 'triangle']],
         gang: [[360, 0, 0.1, 0.035, 'triangle'], [520, 0.09, 0.11, 0.035, 'triangle'], [760, 0.18, 0.13, 0.035, 'triangle']],
-        hu: [[523, 0, 0.12, 0.035, 'sine'], [659, 0.12, 0.12, 0.038, 'sine'], [784, 0.24, 0.15, 0.04, 'sine'], [1046, 0.39, 0.24, 0.045, 'sine']]
+        hu: [[523, 0, 0.12, 0.035, 'sine'], [659, 0.12, 0.12, 0.038, 'sine'], [784, 0.24, 0.15, 0.04, 'sine'], [1046, 0.39, 0.24, 0.045, 'sine']],
+        /* 银币到账：两下金属感的"叮—叮"，再补一层高频泛音当作余韵。
+           频率取 B5 → E6（164.8 音分的上行五度），听起来就是"钱进来了"而不是普通点击。 */
+        coin: [[988, 0, 0.045, 0.05, 'triangle'], [1319, 0.048, 0.1, 0.055, 'sine'], [1976, 0.052, 0.2, 0.022, 'sine']]
       };
       (bank[kind] || bank.ui).forEach((v) => tone(...v));
     } catch (_) { /* ignore */ }
@@ -1586,10 +1590,39 @@
     $('home-coins').textContent = A.fmtNum(account.coins);
     $('home-gold').textContent = A.fmtNum(account.gold);
     $('home-avatar').textContent = (account.nick || '牌').slice(0, 1);
-    const nickInput = $('lobby-nick');
-    if (nickInput && !nickInput.value) nickInput.value = Net ? Net.nick() : account.nick;
     paintLobbyMode();
     paintFreeButton();
+  }
+
+  /* ---------------- 玩法选择：石屏开放，宝秀 / 个旧先留位 ----------------
+   * 这两格刻意不做成 disabled：灰掉的按钮会被读成"功能坏了"，
+   * 留着可点、点了一句"规则还在整理"，反而更清楚。 */
+  const LOCKED_VARIANTS = {
+    baoxiu: '宝秀麻将的规则我还在整理，定下来就开',
+    gejiu: '个旧麻将的规则我还在整理，定下来就开'
+  };
+  function bindModeCards() {
+    const box = $('lobby-modes');
+    if (!box) return;
+    box.addEventListener('click', (e) => {
+      const card = e.target.closest('.mode-card');
+      if (!card) return;
+      playSound('ui');
+      const id = card.dataset.variant;
+      if (card.classList.contains('is-locked')) {
+        const tip = LOCKED_VARIANTS[id] || '这个玩法还没开放';
+        toast(tip);
+        lobbyStatus(tip);
+        return;
+      }
+      if (card.classList.contains('is-on')) return;
+      box.querySelectorAll('.mode-card').forEach((c) => {
+        const on = c === card;
+        c.classList.toggle('is-on', on);
+        c.classList.toggle('is-locked', c.dataset.variant !== 'shiping');
+        c.setAttribute('aria-selected', String(on));
+      });
+    });
   }
 
   /* ---------------- 大厅：只留「快速匹配」和「快速人机」 ---------------- */
@@ -1616,20 +1649,12 @@
     return onlineOk;
   }
 
+  /** 联机要用的昵称：大厅不再放输入框（改昵称在左上角头像里），
+   *  所以直接取当前档案昵称，没登录时退回 Net 记着的名字。 */
   function lobbyNickValue() {
-    const input = $('lobby-nick');
-    const v = input ? String(input.value || '').trim().slice(0, 12) : '';
-    if (!Net) return v || (account && account.nick) || '牌友';
-    return Net.setNick(v || Net.nick());
-  }
-
-  function doRandomNick() {
-    if (!Net) return;
-    const n = Net.setNick(Net.randomNick());
-    const input = $('lobby-nick');
-    if (input) input.value = n;
-    lobbyStatus('系统给你取了个名字：' + n);
-    playSound('ui');
+    if (!Net) return (account && account.nick) || '牌友';
+    const mine = (account && account.nick) || '';
+    return Net.setNick(mine || Net.nick());
   }
 
   /* ---------------- 每日福利：登录礼 + 免费领银币 ---------------- */
@@ -1649,6 +1674,27 @@
       ? `今天还能领 ${st.freeLeft} 次，每次 ${A.fmtNum(A.FREE_CLAIM_COINS)} 银币`
       : '今天的免费银币领完了，明天 0 点重置';
   }
+  /** 到账反馈：在按钮下方飘一个「+4,000」，钱包数字跟着弹一下。
+   *  只靠 toast 会有一瞬间看不出钱进没进账。 */
+  function coinPop(amount) {
+    const btn = $('lobby-free');
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      const el = document.createElement('span');
+      el.className = 'coin-pop';
+      el.textContent = '+' + A.fmtNum(amount);
+      el.style.left = Math.round(r.left + r.width / 2) + 'px';
+      el.style.top = Math.round(r.top + r.height) + 'px';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 950);
+    }
+    const coins = $('home-coins');
+    if (coins) {
+      coins.classList.remove('is-bump');
+      void coins.offsetWidth;
+      coins.classList.add('is-bump');
+    }
+  }
   function doFreeCoins() {
     if (!account) { openLogin({ tip: '领银币要先登录；游客进度只存本机。' }); return; }
     const res = A.claimFreeCoins(store(), account, new Date());
@@ -1662,6 +1708,7 @@
     renderHome();
     persist({ silent: true });
     playSound('coin');
+    coinPop(res.coins);
     toast('+' + A.fmtNum(res.coins) + ' 银币（今日还剩 ' + res.state.freeLeft + ' 次）');
     lobbyStatus('领到 ' + A.fmtNum(res.coins) + ' 银币，今日还剩 ' + res.state.freeLeft + ' 次');
   }
@@ -1674,6 +1721,7 @@
     renderHome();
     persist({ silent: true });
     playSound('coin');
+    coinPop(res.coins);
     toast('每日登录礼 +' + A.fmtNum(res.coins) + ' 银币');
     lobbyStatus('每日登录礼 +' + A.fmtNum(res.coins) + ' 银币');
     paintFreeButton();
@@ -2080,22 +2128,15 @@
     on('hall-back', 'click', enterHome);
     on('hall-help', 'click', () => toast('底分越高，输赢越大；段位分只与胜负有关'));
 
-    /* 新大厅：只有两个入口 */
+    /* 新大厅：只有两个入口（玩法在 mode-card 里选，目前只有石屏开放） */
     on('lobby-ai', 'click', () => { audioReady = true; if (Sfx) Sfx.unlock(); doQuickAi(); });
     on('lobby-match', 'click', () => {
       audioReady = true;
       if (Sfx) Sfx.unlock();
       doQuickMatch().catch((err) => lobbyStatus((err && err.message) || '匹配失败', 'warn'));
     });
-    on('lobby-nick-random', 'click', doRandomNick);
     on('lobby-free', 'click', doFreeCoins);
-    on('lobby-nick', 'change', () => {
-      const input = $('lobby-nick');
-      if (!input || !Net) return;
-      const v = Net.setNick(input.value);
-      input.value = v;
-      lobbyStatus('名字定好了：' + v);
-    });
+    bindModeCards();
 
     document.querySelectorAll('.home-nav').forEach((nav) => {
       nav.addEventListener('click', (e) => {
