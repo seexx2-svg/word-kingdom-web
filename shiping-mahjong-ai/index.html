@@ -13,6 +13,9 @@
 <script defer src="js/cloud.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
 <script defer src="js/auth.js"></script>
+<script defer src="js/net.js"></script>
+<script defer src="js/online.js"></script>
+<script defer src="js/audio.js"></script>
 <script defer src="js/ui.js"></script>
 </head>
 <body>
@@ -158,7 +161,7 @@
 
 <!-- ============================ 5. 主界面 ============================ -->
 <section class="screen home hidden" id="screen-home">
-  <header class="home-top">
+  <header class="lobby-top">
     <div class="player-chip" id="home-player" role="button" tabindex="0" aria-label="账号与本机存档">
       <div class="player-avatar" id="home-avatar">黯</div>
       <div class="player-meta">
@@ -167,22 +170,14 @@
           <span class="rank-badge" id="home-rank">新秀一阶</span>
         </div>
         <div class="wallet">
-          <span class="wallet-item"><svg class="ico"><use href="#i-coin"/></svg><b id="home-coins">5,000</b><button class="wallet-plus" data-wallet="coins" type="button" aria-label="充值银币">+</button></span>
-          <span class="wallet-item"><svg class="ico"><use href="#i-gold"/></svg><b id="home-gold">91</b><button class="wallet-plus" data-wallet="gold" type="button" aria-label="充值金条">+</button></span>
+          <span class="wallet-item"><svg class="ico"><use href="#i-coin"/></svg><b id="home-coins">5,000</b></span>
+          <span class="wallet-item"><svg class="ico"><use href="#i-gold"/></svg><b id="home-gold">91</b></span>
         </div>
       </div>
     </div>
 
-    <div class="home-logo" data-brand>石屏<span>·</span>麻将</div>
-
-    <div class="home-acts">
-      <button class="act-btn" id="act-knife" type="button"><i class="act-dot"></i><span>砍一刀</span></button>
-      <button class="act-btn" id="act-give" type="button"><i class="act-dot"></i><span>银币派送</span></button>
-      <button class="act-btn" id="act-treasure" type="button"><i class="act-dot"></i><span>夺宝</span></button>
-      <span class="act-clock" id="act-clock">23:20</span>
-    </div>
+    <button class="sound-toggle lobby-sound" id="lobby-sound" type="button" aria-pressed="true">声音 开</button>
   </header>
-
   <div class="account-menu hidden" id="account-menu" role="menu" aria-label="账号">
     <div class="am-head">
       <div class="am-face" id="am-face">黯</div>
@@ -202,56 +197,34 @@
     <button class="am-item" id="am-logout" type="button" role="menuitem">退出登录</button>
     <button class="am-item danger" id="am-clear" type="button" role="menuitem">清空本机存档</button>
   </div>
-
-  <div class="home-body">
-    <aside class="ladder" id="home-ladder">
-      <h3><svg class="ico"><use href="#i-ladder"/></svg>天梯榜</h3>
-      <div class="ladder-list" id="ladder-list"></div>
-      <button class="ladder-more" id="ladder-more" type="button">查看更多</button>
-    </aside>
-
-    <div class="home-grid" id="home-grid"></div>
-
-    <div class="home-games">
-      <button class="game-card game-main" id="game-gejiu" type="button">
-        <span class="game-art art-gejiu" aria-hidden="true"></span>
-        <span class="game-foot"><b>个旧麻将</b><i>在线:9,913</i></span>
-      </button>
-      <button class="game-card game-side" id="game-shuangkou" type="button">
-        <span class="game-art art-shuangkou" aria-hidden="true"></span>
-        <span class="game-foot"><b>双扣</b><i>最新游戏</i></span>
-      </button>
-      <div class="game-row">
-        <button class="game-card game-wide" id="game-poker" type="button"><span class="game-art art-poker" aria-hidden="true"></span><span class="game-foot"><b>扑克合集</b></span></button>
-        <button class="game-card game-wide" id="game-mahjong" type="button"><span class="game-art art-mahjong" aria-hidden="true"></span><span class="game-foot"><b>麻将合集</b></span></button>
-        <button class="game-card game-tile" id="game-match" type="button"><span class="tile-ico"><svg class="ico"><use href="#i-trophy"/></svg></span><span class="game-foot"><b>比赛</b></span></button>
-        <button class="game-card game-tile" id="game-invite" type="button"><span class="tile-ico"><svg class="ico"><use href="#i-tea"/></svg></span><span class="game-foot"><b>约牌</b></span></button>
-      </div>
+  <div class="lobby">
+    <div class="lobby-brand">
+      <strong data-brand>石屏麻将</strong>
+      <small>云南红河 · 石屏规则 · 四人一桌</small>
     </div>
 
-    <aside class="other-games">
-      <h3>其他游戏下载</h3>
-      <div class="other-list" id="other-list"></div>
-    </aside>
+    <div class="lobby-nickrow">
+      <label for="lobby-nick">昵称</label>
+      <input id="lobby-nick" type="text" maxlength="12" autocomplete="nickname" placeholder="取个名字，或让系统分配">
+      <button id="lobby-nick-random" type="button">随机</button>
+    </div>
+
+    <div class="lobby-actions">
+      <button class="lobby-btn primary" id="lobby-match" type="button">
+        <b>快速匹配</b>
+        <small>和真人同桌 · 人不够电脑补位</small>
+      </button>
+      <button class="lobby-btn" id="lobby-ai" type="button">
+        <b>快速人机对战</b>
+        <small>三个电脑陪打 · 立刻开局</small>
+      </button>
+    </div>
+
+    <p class="lobby-status" id="lobby-status" aria-live="polite"></p>
+    <p class="lobby-hint" id="lobby-hint">连真人要用云端账号登录</p>
   </div>
-
-  <nav class="home-nav">
-    <button class="nav-item" data-nav="shop"><svg class="ico"><use href="#i-shop"/></svg><span>商城</span></button>
-    <button class="nav-item" data-nav="rank"><svg class="ico"><use href="#i-rank"/></svg><span>等级</span></button>
-    <button class="nav-item" data-nav="deals"><svg class="ico"><use href="#i-gift"/></svg><span>特惠</span></button>
-    <button class="nav-item" data-nav="signin"><svg class="ico"><use href="#i-coin"/></svg><span>领银币</span></button>
-    <button class="nav-item" data-nav="bag"><svg class="ico"><use href="#i-bag"/></svg><span>背包</span></button>
-    <button class="nav-item" data-nav="mail"><svg class="ico"><use href="#i-mail"/></svg><span>邮件</span></button>
-    <button class="nav-item" data-nav="task"><svg class="ico"><use href="#i-task"/></svg><span>任务</span></button>
-    <button class="nav-item" data-nav="dress"><svg class="ico"><use href="#i-dress"/></svg><span>装扮</span></button>
-    <button class="nav-item" data-nav="more"><svg class="ico"><use href="#i-more"/></svg><span>更多</span></button>
-  </nav>
-
-  <button class="quick-start" id="quick-start" type="button">
-    <b>快速开始</b>
-    <small id="quick-hall">初级场 · 个旧麻将</small>
-  </button>
 </section>
+
 
 <!-- ============================ 6. 场次选择 ============================ -->
 <section class="screen hall-screen hidden" id="screen-hall">
@@ -266,7 +239,7 @@
         <span class="hall-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="hall-coins">5,000</b></span>
       </div>
     </div>
-    <div class="hall-title" id="hall-title">个旧麻将</div>
+    <div class="hall-title" id="hall-title">石屏麻将</div>
     <button class="hall-help" id="hall-help" type="button" aria-label="玩法说明">?</button>
   </header>
 
@@ -326,7 +299,7 @@
     <section class="table-frame">
       <div class="felt">
         <div class="felt-sheen"></div>
-        <div class="table-tablemark"><strong>个旧麻将</strong><small id="table-bet">底注:2000</small></div>
+        <div class="table-tablemark"><strong>石屏麻将</strong><small id="table-bet">底注:2000</small></div>
 
         <div class="dice-overlay hidden" id="dice-overlay" aria-live="polite">
           <div class="dice-card">
@@ -347,7 +320,7 @@
             <div class="pcard-body">
               <div class="pcard-face avatar-north" id="face-1">李</div>
               <div class="pcard-text">
-                <b class="pcard-name">北家 · 老李</b>
+                <b class="pcard-name" id="seat-name-1">北家 · 老李</b>
                 <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-1">0</b></span>
                 <span class="seat-score" id="score-1">0</span>
               </div>
@@ -364,7 +337,7 @@
             <div class="pcard-body">
               <div class="pcard-face avatar-east" id="face-3">赵</div>
               <div class="pcard-text">
-                <b class="pcard-name">东家 · 小赵</b>
+                <b class="pcard-name" id="seat-name-3">东家 · 小赵</b>
                 <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-3">0</b></span>
                 <span class="seat-score" id="score-3">0</span>
               </div>
@@ -383,7 +356,7 @@
             <div class="pcard-body">
               <div class="pcard-face avatar-west" id="face-2">梅</div>
               <div class="pcard-text">
-                <b class="pcard-name">西家 · 阿梅</b>
+                <b class="pcard-name" id="seat-name-2">西家 · 阿梅</b>
                 <span class="pcard-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="coin-2">0</b></span>
                 <span class="seat-score" id="score-2">0</span>
               </div>

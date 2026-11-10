@@ -11,7 +11,10 @@
 > 3. **按界面截图重做外壳**：启动页 → 登录/注册 → S25 赛季 → 赛季继承 → 主界面 → 场次选择 → 对局 → 结算；
 > 4. **经济体系**：银币 / 金条 / 段位分 / 战绩 / 每日签到 / 回归好礼 / 赛季继承；
 > 5. **登录单独抽成一层**（`js/auth.js`）并接上**真实云服务**（`js/cloud.js`）：手机验证码 / WorkBuddy 授权 / 微信授权，档案与战绩存云端数据库；游客模式作为显式备选保留；
-> 6. 牌桌布局 v4 与手机竖屏适配。
+> 6. 牌桌布局 v4 与手机竖屏适配；
+> 7. **联机大厅**：主界面只留「快速匹配」与「快速人机对战」，昵称可自取或随机分配；无服务端用「房主定稿 + 同种子确定性重放 + 只写真人动作 + 800ms 轮询」实现真人同桌；
+> 8. **声音**：落桌声与"四万"这类牌名播报全部实时合成，零音频文件；
+> 9. **手机横屏适配**：844×390 下大厅两栏、牌桌 14 张手牌完整可见。
 >
 > 详细说明见 [`docs/DEVELOPMENT-REPORT.md`](docs/DEVELOPMENT-REPORT.md)，截图见 `docs/screenshots/`。
 
@@ -37,7 +40,7 @@ python3 -m http.server 8080     # 或 npm run serve
 | 恭喜获得 | 新号注册送 4,000 银币（初始 5,000，合计 9,000） |
 | S25 赛季 | 赛季开启动画，点击继续 |
 | 赛季继承 | 上赛季称号「长工 112 分」→ 本赛季「未激活 0 分」 |
-| 主界面 | 天梯榜 / 12 个功能格 / 个旧麻将 · 双扣卡片 / 其他游戏下载 / 底部 9 项导航 |
+| 主界面 | **大厅**：只有一个品牌名、一个昵称框（可以自己取，也可以点「随机」让系统分配）、两个入口——「快速匹配」（连真人）与「快速人机对战」。天梯榜、功能格、个旧/双扣占位卡、底部导航全部下线 |
 | 场次选择 | 初级场 2,000 底分、中级场 8,000、高级场 28,000；银币不够时卡片置灰并提示门槛 |
 | 对局 | 四家座位、牌墙环、四片牌河、中央计时卡、手牌 14 张单行、碰/杠/吃/胡/过圆钮 |
 | 结算 | 桌内半透明层：赢家卡 + 三家明细 + 胡牌手牌 + 段位进度 + 换桌/分享/继续 |
@@ -85,14 +88,17 @@ await Auth.current()                        // 恢复会话，没有则 null
 | SDK | `@tencent-ai/workbuddy-cloud-sdk@dev`，CDN 全局 `WorkBuddyCloud`（本项目无构建步骤，走 CDN 形态） |
 | 模块 | Auth（手机验证码 / WorkBuddy / 微信授权）、Database（PostgREST） |
 
-两张表，全部开启 RLS，并且只授权给 `authenticated`（`anon` 连 GRANT 都没有）：
+五张表，全部开启 RLS，并且只授权给 `authenticated`（`anon` 连 GRANT 都没有）：
 
 | 表 | 用途 | 关键列 |
 | --- | --- | --- |
 | `mahjong_players` | 一人一行的档案 | `owner_id text default auth.uid()`（唯一）、`owner_name`、`coins`、`gold`、`rank_points`、`season_seen`、`signin jsonb`、`back_gift jsonb`、`stats jsonb`、`welcome_granted` |
 | `mahjong_rounds` | 每局流水（战绩） | `owner_id`、`hall_id`、`base_bet`、`win_type`、`delta`、`rank_delta`、`balance_after`、`created_at` |
+| `mahjong_rooms` | 联机房间（一次匹配一间） | `owner_id`（房主）、`seed`、`hall_id`、`base_bet`、`status`（waiting/ready/closed）、`human_count`、`target_seats`、`created_at`、`updated_at` |
+| `mahjong_room_members` | 房间里的座位 | `room_id`、`owner_id`、`name`、`as_ai`、`joined_at`、`last_seen`，`UNIQUE(room_id, owner_id)` |
+| `mahjong_moves` | 真人的动作日志 | `room_id`、`owner_id`、`seq`、`seat`、`action jsonb`，`UNIQUE(room_id, seq)` |
 
-策略：`players` 读/写/改都要求 `owner_id = auth.uid()`（UPDATE 同时带 USING 与 WITH CHECK，防止把行改给别人）；`rounds` 只允许读自己的和插入自己的。
+策略：`players` 读/写/改都要求 `owner_id = auth.uid()`（UPDATE 同时带 USING 与 WITH CHECK，防止把行改给别人）；`rounds` 只允许读自己的和插入自己的；房间三表允许登录用户读全部（大厅要能看见别人开的房），但写只落在自己那一行，`mahjong_moves` 的 INSERT 额外要求「房内成员」的存在性子查询。
 
 **前端永远不发送 `owner_id`**：归属由 `DEFAULT auth.uid()` 决定，RLS 的 `WITH CHECK` 会把伪造的归属顶回去。代码里 `Cloud.toRow()` 有一处显式断言（`tests/cloud.test.cjs`）。
 
@@ -111,12 +117,54 @@ npm run test:cloud     # 真的打云端，8 项连通性检查
 3. 刷新页面，确认仍是同一账号、银币和段位没丢（会话持久化）；
 4. 控制台执行 `__shipingMahjongCloud()`，应看到 `session.uid` 有值、`account.source === 'cloud'`、`sync.state === 'ok'`。
 
+## 联机大厅（`js/net.js` + `js/online.js` + `js/audio.js`）
+
+这个项目**没有服务端进程**（纯静态站 + 云数据库），所以联机不是"开个 WebSocket 房间"，而是：
+
+**房主定稿 + 同种子确定性重放 + 只写真人动作 + 轮询。**
+
+1. 点「快速匹配」→ `Net.match()` 先扫有没有别人开的 `waiting` 房间，有就坐下（`mahjong_room_members` 插一行），没有就自己当房主开一间。
+2. 房主在「满 4 人」或「等够 9 秒」时把房间 `status` 改成 `ready`，同时定稿 `human_count`（2~4）与 `seed`。这一步全房一致，之后不会变。
+3. 各端拿到同一个 `seed`，用 `mulberry32(seed)` 本地建局——**同一副牌**。骰子也从这条流取，所以四家看到的骰子一样。
+4. 只有**真人**的那一手会写进 `mahjong_moves`（`seq` 单调递增，`UNIQUE(room_id, seq)` 天然防重）；电脑的决策不落库，各端自己算，结果必然相同，还省流量、不泄露别人的牌。
+5. 每 800ms 拉一次 `movesSince(roomId, mySeq)`，把对手的动作喂回同一套内核 API。失败按 1.6^n 退避，连续 3 次判 `offline`。
+
+### 座位旋转等价
+
+联机时每台设备都把自己当 0 号位（不然"我"会坐到自己对面去）。内核的座位环是 `NEXT_SEAT = [2, 3, 1, 0]`（0→2→1→3→0），**不是 +1**，所以旋转必须沿环走：
+
+```js
+const CYCLE = [0, 2, 1, 3];              // 环上第 k 个全局座位
+const POS   = { 0: 0, 1: 2, 2: 1, 3: 3 }; // 全局座位 → 环上位置
+localOf(g, me) = CYCLE[(POS[g] - POS[me] + 4) % 4];
+```
+
+`Online.rotate(state, mySeat)` 会把 `hands / melds / discards / scores / dealer / current / lastDraw.seat / lastDiscard.from / pendingClaims[].seat / events[] / kongLog / winner / result.seat` 一次性转到本地视角。
+
+这条数学被测试钉死了：`seed ∈ {1, 7, 2026} × 位移 ∈ {0,1,2,3}`，AI 打完整局逐手比对全局指纹，必须完全一致；另有一条守卫用例校验 `CYCLE` 与内核 `NEXT_SEAT` 是同一个环——**以后谁改了内核座位顺序，这里会先炸**。
+
+### 声音（零音频文件）
+
+`js/audio.js` 全部实时合成，仓库里没有一个 mp3/wav：
+
+- **落桌声**：白噪声 buffer → bandpass 1500–2000Hz → 85ms 指数衰减，叠一个 190→120Hz 的三角波当"木头味"；
+- **报牌名**：`speechSynthesis` 读中文，`tileWord(3) === '四万'`，字牌读「东风 / 红中 / 白板 / 发财」；
+- **吃碰杠胡**：各自的短音效 + 中文喊声，杠用四层锣。
+
+iOS 的规矩是 `AudioContext` 必须在用户手势里解锁，所以 `boot()` 挂了一次性 `pointerdown → Sfx.unlock()`，页面切回前台再 `resume()`。顶栏「声开 / 声关」随时可切。
+
+### 手机横屏
+
+`styles.css` 第 13 节有三段 `@media (orientation:landscape) and (max-height:560px)`：大厅改成左右两栏（品牌在左、昵称与按钮在右），牌桌把顶栏压到 38px、手牌宽度压到 `clamp(24px,3.4vw,40px)`，保证 844×390 下 14 张手牌完整可见且不遮挡操作区。这一条有单独的浏览器用例。
+
+
+
 ## 测试
 
 ```bash
-npm test              # 规则 + 变体 + 经济 + 认证 + 云端接入 + 人机模拟（108 条，纯 Node）
-npm run test:browser  # 真实 Chromium：对局 / 登录 / 外壳（36 条，需要本机 Chrome/Edge 与 npm i）
-npm run test:all      # 两者都跑，共 144 条
+npm test              # 规则 + 变体 + 经济 + 认证 + 云端接入 + 联机 + 人机模拟（115 条，纯 Node）
+npm run test:browser  # 真实 Chromium：对局 / 登录 / 外壳 / 联机 / 横屏（41 条，需要本机 Chrome/Edge 与 npm i）
+npm run test:all      # 两者都跑，共 156 条
 npm run test:cloud    # 打真实云端做 8 项连通性检查（需要外网，不在 test:all 里）
 node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 ```
@@ -128,6 +176,8 @@ node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 - **云端接入**：行 ↔ 账号映射、缺字段兜底、`toRow` 不含 `owner_id`、RLS 空数组视为失败、错误翻译、发码只发一次、码错重试不重发、换号作废旧挑战、云端不可用时禁用验证码但保留游客入口。
 - **登录界面**：手机号本地校验（空 / 少一位 / 非数字都不发请求）、没发码就提交被拦下、游客一次进入且见面礼不重复、退出清空、账号浮层标明身份、改昵称生效、手机端按钮可点中。
 - **对局**：出牌飞行动画、副露顺子与被吃牌高亮、骰子六面与落点、桌内结算不溢出、AI 任务丢失 6 秒自愈、浏览器内连续 20 局无卡死且积分零和。
+- **联机**：座位环与内核 `NEXT_SEAT` 一致、3 种子 × 4 位移的旋转等价（逐手比对全局指纹）、本地↔全局换算互逆、本地 0 号位永远是自己、两人局的电脑补位与名字、随机昵称规则、牌名读音全覆盖、无 `AudioContext` 时不抛错。
+- **联机（浏览器）**：联机开局后座位与名字对得上、轮到真人对手时不替他出牌、注入对手动作后局面推进、出牌真的触发了落桌声与牌名播报。
 - **几何**：桌面 1440×900 与手机 390×844 下，四家弃牌区互不重叠、中央信息台不压牌河、手牌完整在视口内、hover 不位移且能点中。
 
 ## 调试接口（`?debug=1`）
@@ -148,6 +198,9 @@ node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 | `__shipingMahjongForceChi / ForceMelds / ForceWin` | 构造吃牌 / 四家副露 / 胡牌结算现场（视觉回归用） |
 | `__shipingMahjongDropAiTask()` | 人为丢弃 AI 定时任务，验证心跳自愈 |
 | `__shipingMahjongAutoPlay(n)` | 无人值守连打 n 局，返回每局结果 |
+| `__shipingMahjongOnlineStart({seed, mySeat, humanCount, names})` | 不走真实匹配，直接按指定座位与人数开一局联机牌桌（测座位旋转用） |
+| `__shipingMahjongOnline()` | 联机快照：是否联机、房间号、我的座位、真人数量、名字、seq、最近一次拉取、当前等待谁、是否卡在远端 |
+| `__shipingMahjongRemote(seat, action)` | 以「对手」身份注入一个动作（模拟收到别人的出牌 / 吃碰） |
 
 ## 规则
 
@@ -161,21 +214,35 @@ node tests/screenshots.cjs   # 重新生成 docs/screenshots/shell-*.jpg
 
 ## 文件
 
-- `index.html`：7 个界面（启动/赛季/继承/主界面/场次/牌桌）+ 5 个弹层
-- `styles.css`：外壳、牌桌、结算、弹窗样式与响应式（含第 10 节「牌桌布局 v4」、第 11 节「窄屏」）
+- `index.html`：7 个界面（启动/赛季/继承/大厅/场次/牌桌）+ 5 个弹层
+- `styles.css`：外壳、牌桌、结算、弹窗样式与响应式（含第 10 节「牌桌布局 v4」、第 11 节「窄屏」、第 13 节「大厅与横屏」）
 - `js/core.js`：牌库、玩法变体注册表、胡牌判定、操作与计分
 - `js/account.js`：经济与规则（银币 / 段位 / 签到 / 赛季继承，纯逻辑，Node 与浏览器共用）
 - `js/auth.js`：认证层（async provider 抽象：云端 / 游客两套实现），界面只调这一层
 - `js/cloud.js`：云服务接入层（SDK 初始化、行 ↔ 账号映射、档案读写、错误翻译）
+- `js/net.js`：大厅匹配层（找房 / 建房 / 定稿 / 轮询 / 动作日志 / 随机昵称）
+- `js/online.js`：联机会话层（座位环与旋转、真人座位判定、动作推送与拉取）
+- `js/audio.js`：声音层（Web Audio 合成落桌声 + `speechSynthesis` 报牌名，零音频文件）
 - `js/ui.js`：界面渲染、回合驱动、动画与调试接口
+- `docs/sql/online-tables.sql`：联机三张表的建表与 RLS 语句（可整段复制到 SQL 控制台逐条执行）
 
 ## 已知限制
 
 - **云端账号已接通**，但「登录后读写」这条链路需要一条真实验证码才能验证，自动化只覆盖到「发请求前」和「未登录被拒」；请按上面的四步清单自己走一遍。
 - 微信授权能发起（平台开关是开的），但是否真能扫码取决于平台侧微信凭证与回调域名，本项目只做到发起与回跳处理。
-- 进度由客户端写入（RLS 保证只能写自己那一行）。这是单机向的游戏，没有对抗性，所以没做服务端校验；将来要做联机对局时，结算必须挪到服务端。
-- 「个旧麻将」「宝秀麻将」只是入口占位，规则未确认前不实现，避免凭猜写错规则。
-- 天梯榜、比赛场、约牌等需要服务端数据的功能一律给出提示，不伪造数据。
+- **联机两端互通需要两台真机 + 两个云端账号**才能走完（本地 `127.0.0.1` 没有会话，云数据面会拒写，这是环境边界）。单端能验的是：座位旋转等价（单测逐手比对）、收到对手动作后的推进（浏览器用例注入动作）、真人座位不被 AI 抢手。请按下面的清单真机验一遍。
+- 联机是**信任客户端**的：谁写什么动作没人复核。四人牌友之间够用，公开大厅要防作弊就得把判胡挪到服务端。
+- 轮询延迟下限就是 800ms 一轮，网络差时一次出牌可能等 1~2 秒；没有 WebSocket 是因为纯静态站没有常驻进程。
+- 进度由客户端写入（RLS 保证只能写自己那一行）。单机局没有对抗性，所以没做服务端校验。
+- 「个旧麻将」「宝秀麻将」等其它玩法按需求全部下线，规则未确认前不实现，避免凭猜写错规则。
+
+### 真机互通验证清单（约 3 分钟）
+
+1. 手机 A、手机 B 各打开 <https://shiping-mahjong-ai.app.workbuddy.host/>，各用一个手机号登录（游客不行）；
+2. 两台都点「快速匹配」，10 秒内应该坐进同一桌，两边的座位名字互为对方昵称；
+3. A 打一张牌，B 那边应看到同一张牌落进牌河，并能听到"四万"这类报牌；
+4. 打完后两边看到的牌河、副露、分数必须完全一致（同种子重放，不一致就是 bug）；
+5. 一人退出，另一人应看到「对手掉线」并继续等，不会整桌卡死。
 
 ## 牌面素材与许可
 

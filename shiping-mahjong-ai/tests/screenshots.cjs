@@ -8,6 +8,7 @@ const { startServer, launch, newPage } = require('./browser-lib.cjs');
 const OUT = path.resolve(__dirname, '..', 'docs', 'screenshots');
 const DESK = { width: 1440, height: 900 };
 const MOB = { width: 390, height: 844 };
+const LAT = { width: 844, height: 390 };
 
 (async () => {
   const srv = await startServer();
@@ -46,9 +47,15 @@ const MOB = { width: 390, height: 844 };
   await hold(480);
   await shot('shell-06-home.jpg');
 
-  await desk.evaluate(() => window.__shipingMahjongOpenHall());
-  await hold(400);
-  await shot('shell-07-hall.jpg');
+  // 场次页已下线（大厅只保留两个入口），这一张改成横屏手机上的大厅
+  const land = await newPage(browser, srv.origin, LAT);
+  await land.evaluate(async () => {
+    window.__shipingMahjongResetProgress();
+    await window.__shipingMahjongRegister('honghe999', 'abcd', '横屏测试', true);
+    window.__shipingMahjongSkipSeason();
+  });
+  await land.waitForTimeout(360);
+  await shot('shell-07-lobby-landscape.jpg', land);
 
   await desk.evaluate(() => {
     window.__shipingMahjongStartTable('novice');
@@ -113,9 +120,12 @@ const MOB = { width: 390, height: 844 };
   await mob.waitForTimeout(420);
   await shot('shell-12-home-mobile.jpg', mob);
 
-  await mob.evaluate(() => window.__shipingMahjongOpenHall());
+  await mob.evaluate(() => window.__shipingMahjongStartTable('novice'));
   await mob.waitForTimeout(340);
-  await shot('shell-13-hall-mobile.jpg', mob);
+  await mob.evaluate(() => window.__shipingMahjongSetSpeed(0));
+  await mob.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 30000 });
+  await mob.waitForTimeout(300);
+  await shot('shell-13-table-mobile-waiting.jpg', mob);
 
   await mob.evaluate(() => {
     window.__shipingMahjongStartTable('novice');

@@ -114,7 +114,7 @@ test('赛季：点击进「赛季继承」，再点进主界面', async () => {
   await page.close();
 });
 
-test('主界面：12 个功能格 / 天梯 4 条 / 其他游戏 4 张，钱包与段位显示正确', async () => {
+test('大厅：只留两个入口（快速匹配 / 快速人机），其余玩法全部下线', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
   await registerByClick(page);
   await page.click('#reward-ok');
@@ -122,19 +122,31 @@ test('主界面：12 个功能格 / 天梯 4 条 / 其他游戏 4 张，钱包�
   await page.click('#screen-inherit');
   await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home');
 
-  assert.equal(await count(page, '#home-grid .grid-tile'), 12, '功能格应为 12 个');
-  assert.equal(await count(page, '#ladder-list .ladder-row'), 4, '天梯榜应有 4 条');
-  assert.equal(await count(page, '#other-list .other-card'), 4, '其他游戏应有 4 张');
-  assert.equal(await count(page, '#screen-home .home-nav .nav-item'), 9, '底部导航 9 项');
+  assert.equal(await count(page, '#screen-home .lobby-btn'), 2, '大厅只留两个入口');
+  assert.equal(await exists(page, '#lobby-match'), true, '要有快速匹配');
+  assert.equal(await exists(page, '#lobby-ai'), true, '要有快速人机');
+  assert.equal(await count(page, '#screen-home .home-nav .nav-item'), 0, '底部导航下线');
+  assert.equal(await count(page, '#home-grid .grid-tile'), 0, '功能格下线');
+  assert.equal(await count(page, '#screen-home .game-card'), 0, '个旧 / 双扣 / 扑克等占位卡下线');
   assert.equal(await text(page, '#home-coins'), '9,000', '银币含见面礼');
   assert.equal(await text(page, '#home-gold'), '91');
   assert.equal(await text(page, '#home-rank'), '新秀一阶');
-  assert.equal(await text(page, '#home-nick'), (await shell(page)).account.nick, '主界面昵称就是当前账号昵称');
-  assert.deepEqual(page.__errors, [], '主界面不应报错：' + page.__errors.join(' | '));
+  assert.match(await text(page, '#lobby-hint'), /登录|手机号|人机/, '不能连真人时要说明原因');
+
+  const nick = await page.inputValue('#lobby-nick');
+  assert.ok(nick && nick.length >= 2, '昵称框要有默认名字，实际：' + nick);
+  assert.equal(await page.isDisabled('#lobby-match'), false, '未登录也不灰按钮：点一下弹登录并说明原因');
+  await page.click('#lobby-match');
+  await page.waitForSelector('#login-modal:not(.hidden)', { timeout: 5000 });
+  assert.match(await text(page, '#login-tip'), /登录/, '点匹配要提示先登录');
+  await page.click('#login-close');
+  await page.waitForTimeout(150);
+  assert.equal(await page.isDisabled('#lobby-ai'), false, '人机入口永远可用');
+  assert.deepEqual(page.__errors, [], '大厅不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
 
-test('场次：三档场次，银币不足的档位不可进入', async () => {
+test('快速人机：大厅一键进初级场，底注与场次写进桌面', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
   await registerByClick(page);
   await page.click('#reward-ok');
@@ -142,25 +154,14 @@ test('场次：三档场次，银币不足的档位不可进入', async () => {
   await page.click('#screen-inherit');
   await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home');
 
-  await page.click('#quick-start');
-  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'hall');
-  assert.equal(await count(page, '#hall-tables .hall-card'), 3);
-  assert.equal(await text(page, '#hall-coins'), '9,000');
-  assert.equal(await text(page, '#hall-rank-name'), '新秀一阶');
-
-  // 中级场需要 20,000，9,000 不够：点了应该留在场次页
-  await page.click('#hall-tables .hall-card[data-hall="mid"]');
-  await page.waitForTimeout(150);
-  assert.equal((await shell(page)).screen, 'hall', '银币不足不能进桌');
-  assert.match(await text(page, '#hall-tables .hall-card[data-hall="mid"] .hall-lock'), /银币不足/);
-
-  // 初级场可以进
-  await page.click('#hall-tables .hall-card[data-hall="novice"]');
-  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'table', null, { timeout: 5000 });
+  await page.click('#lobby-ai');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'table', null, { timeout: 8000 });
   const s = await shell(page);
-  assert.equal(s.hall, 'novice');
+  assert.equal(s.hall, 'novice', '人机默认进初级场');
   assert.equal(s.baseBet, 2000);
   assert.match(await text(page, '#table-bet'), /2,?000/);
+  assert.match(await text(page, '#lobby-status'), /人机/);
+  assert.deepEqual(page.__errors, [], '进桌不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
 
@@ -225,9 +226,8 @@ test('结算：赢家实收 / 三家赔付 / 段位分，并写回账号', async
   await page.close();
 });
 
-test('结算后回主界面，银币与段位分同步刷新；再进场次仍是新余额', async () => {
+test('结算后回大厅，银币与段位分同步刷新；再开一局仍是新余额', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
-  // 走完整新号流程（含 4,000 见面礼），这样余额能跨过中级场门槛，顺便验证解锁
   await page.evaluate(async () => {
     await window.__shipingMahjongRegister('shell_cont_1', 'abcd1234', '续局测试');
     const ok = document.getElementById('reward-ok');
@@ -242,21 +242,18 @@ test('结算后回主界面，银币与段位分同步刷新；再进场次仍�
 
   const afterWin = await shell(page);
   const coins = afterWin.account.coins;
-  const pts = afterWin.account.rankPoints;
   assert.ok(coins > 9000, '赢一局后余额应高于 9,000，实际 ' + coins);
 
   await page.click('#result-continue');
   await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'home', null, { timeout: 5000 });
-  assert.equal(await text(page, '#home-coins'), coins.toLocaleString('en-US'), '主界面余额应与账本一致');
+  assert.equal(await text(page, '#home-coins'), coins.toLocaleString('en-US'), '大厅余额应与账本一致');
   assert.equal(await text(page, '#home-rank'), '新秀一阶');
 
-  await page.click('#quick-start');
-  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'hall');
-  assert.equal(await text(page, '#hall-coins'), coins.toLocaleString('en-US'), '场次页应显示最新余额');
-  assert.equal(await text(page, '#hall-rank-text'), pts + '/420', '段位进度应与账本一致');
-  // 余额跨过 20,000 时中级场自动解锁
-  const locked = await exists(page, '#hall-tables .hall-card[data-hall="mid"] .hall-lock');
-  assert.equal(locked, coins < 20000, '中级场锁定状态应跟随余额');
+  await page.click('#lobby-ai');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'table', null, { timeout: 8000 });
+  const again = await shell(page);
+  assert.equal(again.account.coins, coins, '再开一局时余额不应被重置');
+  assert.equal(again.baseBet, 2000);
   await page.close();
 });
 
@@ -298,7 +295,7 @@ test('回归好礼：7 格，按顺序领取并累加银币', async () => {
   await page.close();
 });
 
-test('手机竖屏：主界面单列不横向溢出，格子与游戏卡都在屏幕内', async () => {
+test('手机竖屏：大厅两个按钮都在屏内，不横向溢出', async () => {
   const page = await freshPage({ width: 390, height: 844 });
   await page.evaluate(async () => {
     await window.__shipingMahjongRegister('shell_mob_1', 'abcd1234', '手机测试', true);
@@ -308,22 +305,21 @@ test('手机竖屏：主界面单列不横向溢出，格子与游戏卡都在�
 
   const layout = await page.evaluate(() => {
     const doc = document.documentElement;
-    const tiles = Array.from(document.querySelectorAll('#home-grid .grid-tile')).map((el) => el.getBoundingClientRect());
-    const over = tiles.filter((r) => r.right > innerWidth + 1 || r.left < -1);
+    const btns = Array.from(document.querySelectorAll('.lobby-btn')).map((el) => el.getBoundingClientRect());
+    const nick = document.querySelector('.lobby-nickrow').getBoundingClientRect();
     return {
       scrollW: doc.scrollWidth, inner: innerWidth,
-      cols: getComputedStyle(document.querySelector('#home-grid')).gridTemplateColumns.split(' ').length,
-      overflowTiles: over.length,
-      ladderHidden: getComputedStyle(document.querySelector('#home-ladder')).display === 'none',
-      navBottom: Math.round(document.querySelector('.home-nav').getBoundingClientRect().bottom),
-      vh: innerHeight
+      count: btns.length,
+      inView: btns.filter((r) => r.left >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1).length,
+      nickIn: nick.left >= -1 && nick.right <= innerWidth + 1,
+      gap: btns.length === 2 ? Math.round(btns[1].top - btns[0].bottom) : -1
     };
   });
+  assert.equal(layout.count, 2, '手机端也是两个入口');
+  assert.equal(layout.inView, 2, '两个按钮都要完整在屏内');
   assert.ok(layout.scrollW <= layout.inner + 2, '不应出现横向滚动，实际 ' + layout.scrollW + ' vs ' + layout.inner);
-  assert.equal(layout.cols, 4, '手机端功能格仍为 4 列');
-  assert.equal(layout.overflowTiles, 0, '功能格不应超出屏幕');
-  assert.equal(layout.ladderHidden, true, '手机端隐藏天梯侧栏');
-  assert.ok(Math.abs(layout.navBottom - layout.vh) <= 1, '底部导航应贴底');
+  assert.equal(layout.nickIn, true, '昵称框不应超出屏幕');
+  assert.ok(layout.gap >= 0, '两个按钮要分开，别叠在一起');
   assert.deepEqual(page.__errors, [], '手机端不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
@@ -356,5 +352,51 @@ test('手机竖屏：牌桌手牌 14 张完整可见，操作区不遮挡手牌'
   assert.ok(geo.minLeft >= -1, '手牌不应超出左边界');
   assert.ok(geo.maxRight <= geo.vw + 1, '手牌不应超出右边界，实际 ' + geo.maxRight + ' / ' + geo.vw);
   assert.ok(geo.maxBottom <= geo.vh + 1, '手牌不应超出下边界，实际 ' + geo.maxBottom + ' / ' + geo.vh);
+  await page.close();
+});
+
+test('手机横屏：大厅装得下，牌桌 14 张手牌完整可见', async () => {
+  const page = await freshPage({ width: 844, height: 390 });
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_ls_1', 'abcd1234', '横屏测试', true);
+    window.__shipingMahjongSkipSeason();
+  });
+  await page.waitForTimeout(300);
+
+  const lobby = await page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll('.lobby-btn')).map((el) => el.getBoundingClientRect());
+    return {
+      count: btns.length,
+      inView: btns.filter((r) => r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 && r.bottom <= innerHeight + 1).length,
+      scrollH: document.documentElement.scrollHeight,
+      h: innerHeight
+    };
+  });
+  assert.equal(lobby.count, 2, '横屏也是两个入口');
+  assert.equal(lobby.inView, 2, '横屏两个按钮都要在屏内');
+  assert.ok(lobby.scrollH <= lobby.h + 2, '横屏不应纵向滚动，实际 ' + lobby.scrollH + ' vs ' + lobby.h);
+
+  await page.evaluate(() => window.__shipingMahjongSetSpeed(0));
+  await page.click('#lobby-ai');
+  await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'table', null, { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 20000 });
+
+  const table = await page.evaluate(() => {
+    const tiles = Array.from(document.querySelectorAll('#hand-tiles .tile-face')).map((el) => el.getBoundingClientRect());
+    const bar = document.querySelector('#action-bar').getBoundingClientRect();
+    const hand = document.querySelector('#hand-tiles').getBoundingClientRect();
+    return {
+      count: tiles.length,
+      clipped: tiles.filter((r) => r.left < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1).length,
+      scrollW: document.documentElement.scrollWidth,
+      w: innerWidth,
+      barOverHand: bar.height > 0 && bar.bottom > hand.top && bar.top < hand.bottom
+    };
+  });
+  assert.equal(table.count, 14, '手牌应有 14 张（含摸牌），实际 ' + table.count);
+  assert.equal(table.clipped, 0, '横屏手牌不应超出屏幕');
+  assert.ok(table.scrollW <= table.w + 2, '横屏不应横向滚动，实际 ' + table.scrollW + ' vs ' + table.w);
+  assert.equal(table.barOverHand, false, '操作条不能压在手牌上');
+  assert.deepEqual(page.__errors, [], '横屏不应报错：' + page.__errors.join(' | '));
   await page.close();
 });

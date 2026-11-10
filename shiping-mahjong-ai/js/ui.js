@@ -12,6 +12,7 @@
   const C = window.ShipingMahjongCore;
   const $ = (id) => document.getElementById(id);
   const NAMES = ['你', '老李', '阿梅', '小赵'];
+  const DEFAULT_NAMES = NAMES.slice();
   const SEATS = ['南家', '北家', '西家', '东家'];
   const KEY_SETTINGS = 'shiping-mahjong-settings-v1';
   const KEY_SOUND = 'shiping-mahjong-sound-v1';
@@ -25,10 +26,20 @@
   /* 品牌名只在这里改：index.html 里的 [data-brand] 占位由 applyBrand() 统一填充 */
   const BRAND = { title: '石屏麻将 · 四人牌桌', html: '石屏<span>·</span>麻将' };
 
-  const SPEED = { claim: 700, discard: 780, kong: 620 };
-  const HEARTBEAT_MS = 900;
+  const SPEED = { claim: 700, discard: 780, kong: 620 };  const HEARTBEAT_MS = 900;
   const STALL_MS = 2600;
   const MAX_RETRY = 8;
+
+  /** 确定性随机数：同一个种子在任何设备上都洗出同一副牌（联机的地基） */
+  function mulberry32(seed) {
+    let a = (Number(seed) || 1) >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
   /* ---------------- 运行时状态 ---------------- */
   let state = null;
@@ -85,6 +96,9 @@
    * 云端账号的进度绝不落 localStorage，游客账号也绝不冒充云端数据。
    */
   const Cloud = window.HongheCloud || null;
+  const Net = window.HongheNet || null;       // 大厅匹配（云库轮询）
+  const Online = window.HongheOnline || null; // 联机会话：座位旋转 + 动作重放
+  const Sfx = window.HongheAudio || null;     // 音效 + 中文牌名播报
   /** 云端账号不能写本机：否则会污染游客存档，也会让人误以为云端没生效 */
   const INERT_STORE = {
     getItem: () => null, setItem: () => {}, removeItem: () => {},
@@ -216,10 +230,13 @@
 
   /* ---------------- 音效 ---------------- */
   function syncSoundButton() {
-    const b = $('sound-toggle');
-    if (!b) return;
-    b.textContent = soundEnabled ? '声音 开' : '声音 关';
-    b.setAttribute('aria-pressed', String(soundEnabled));
+    const text = soundEnabled ? '声音 开' : '声音 关';
+    ['sound-toggle', 'lobby-sound'].forEach((id) => {
+      const b = $(id);
+      if (!b) return;
+      b.textContent = text;
+      b.setAttribute('aria-pressed', String(soundEnabled));
+    });
   }
   function tone(freq, start, duration, volume, wave = 'sine') {
     if (!audioCtx) return;
@@ -257,6 +274,7 @@
     soundEnabled = !soundEnabled;
     try { localStorage.setItem(KEY_SOUND, soundEnabled ? 'on' : 'off'); } catch (_) { /* ignore */ }
     syncSoundButton();
+    if (Sfx) Sfx.setEnabled(soundEnabled);
     if (soundEnabled) { audioReady = true; playSound('ui'); }
   }
 
@@ -473,7 +491,8 @@
     const top = $('bankroll-display');
     if (top) top.textContent = '银币 ' + A.fmtNum(account.coins);
     const name0 = $('seat-name-0');
-    if (name0) name0.textContent = account.nick;
+    // 联机时 0 号位显示的是「房间里登记的那个昵称」，不是账号昵称
+    if (name0 && !(Online && Online.isOnline())) name0.textContent = account.nick;
     const face0 = $('face-0');
     if (face0) face0.textContent = (account.nick || '牌').slice(0, 1);
     const rank0 = $('rank-0');
@@ -600,7 +619,7 @@
   }
 
   /* ---------------- 命令包装 ---------------- */
-  function command(source, fn) {
+  function command(source, fn, decision) {
     if (!state) return;
     busy = true;
     try {
@@ -611,6 +630,17 @@
       toast(err.message || '操作失败');
     } finally {
       busy = false;
+    }
+    // 联机：只有"我这手牌"要写进动作日志；电脑的动作各端自己算，不落库
+    if (decision && Online && Online.isOnline()) {
+      Online.push(0, decision).then((res) => {
+        if (res && res.ok === false) {
+          logLine('error', '联机同步失败：' + (res.error || ''));
+          toast('这一手没能同步给对手：' + (res.error || ''));
+        }
+      }).catch((err) => {
+        logLine('error', '联机同步异常：' + ((err && err.message) || err));
+      });
     }
     bumpEpoch();
     retryCount = 0;
@@ -632,26 +662,26 @@
       switch (ev.type) {
         case 'draw':
           logLine('action', `摸牌 seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)} wall=${ev.wall}`);
-          if (ev.seat !== 0) playSound('draw');
+          if (ev.seat !== 0) { if (Sfx) Sfx.draw(); else playSound('draw'); }
           break;
         case 'discard':
           logLine('action', `出牌 src=${source} seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)} pending=${ev.pending.join(',') || '无'}`);
-          playSound('discard');
+          if (Sfx) Sfx.discardTile(ev.tile); else playSound('discard');   // 落桌声 + 报牌名「四万」
           if (ev.seat === 0 && beforeCapture) discardFx = { seat: 0, tile: ev.tile, rect: beforeCapture };
           else discardFx = { seat: ev.seat, tile: ev.tile, rect: null };
           updateCallout(ev.seat, ev.tile);
           break;
         case 'chi': case 'peng':
           logLine('action', `${ev.type === 'chi' ? '吃牌' : '碰牌'} seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)} from=${NAMES[ev.from]}`);
-          playSound(ev.type);
+          if (Sfx) Sfx.claim(ev.type); else playSound(ev.type);
           break;
         case 'gang':
           logLine('action', `杠牌(${ev.kind}) seat=${NAMES[ev.seat]} tile=${C.tileLabel(ev.tile)}`);
-          playSound('gang');
+          if (Sfx) Sfx.claim('gang'); else playSound('gang');
           break;
         case 'hu':
           logLine('action', `胡牌 seat=${NAMES[ev.seat]} ${ev.source} tile=${C.tileLabel(ev.tile)}`);
-          playSound('hu');
+          if (Sfx) Sfx.claim('hu'); else playSound('hu');
           break;
         case 'pass':
           logLine('action', `过牌 seat=${NAMES[ev.seat]}`);
@@ -684,23 +714,23 @@
   function humanDiscard(index) {
     if (busy || !state || state.phase !== C.PHASES.DISCARD || state.current !== 0) return;
     beforeCapture = handRects[index] || null;
-    command('human', () => C.discardTile(state, 0, index));
+    command('human', () => C.discardTile(state, 0, index), { kind: 'discard', index });
   }
   function humanClaim(type, optionIndex) {
     if (busy || !state || state.phase !== C.PHASES.CLAIM) return;
-    command('human', () => C.claimDiscard(state, 0, type, optionIndex || 0));
+    command('human', () => C.claimDiscard(state, 0, type, optionIndex || 0), { kind: 'claim', type, optionIndex: optionIndex || 0 });
   }
   function humanPass() {
     if (busy || !state || state.phase !== C.PHASES.CLAIM) return;
-    command('human', () => C.passClaim(state, 0));
+    command('human', () => C.passClaim(state, 0), { kind: 'pass' });
   }
   function humanSelfKong(type, tile) {
     if (busy || !state) return;
-    command('human', () => C.claimSelfKong(state, 0, type, tile));
+    command('human', () => C.claimSelfKong(state, 0, type, tile), { kind: 'selfKong', kongType: type, tile });
   }
   function humanWin() {
     if (busy || !state) return;
-    command('human', () => C.winSelf(state, 0));
+    command('human', () => C.winSelf(state, 0), { kind: 'hu' });
   }
 
   /* ---------------- AI 调度 ---------------- */
@@ -732,6 +762,9 @@
   }
 
   /* ---------------- 主循环 ---------------- */
+  function isRemoteHuman(seat) {
+    return !!(Online && Online.isOnline() && seat !== 0 && Online.isHumanSeat(seat));
+  }
   function pump(reason) {
     if (!state) return;
     if (state.phase === C.PHASES.OVER) {
@@ -754,6 +787,12 @@
       showHumanDecision(a);
       return;
     }
+    // 联机：轮到的是真人对手（不是电脑），只能等，不能替他打
+    if (isRemoteHuman(a.seat)) {
+      barSig = 'remote:' + a.seat + a.kind;
+      setActionBar(barSig, (bar) => addInfo(bar, NAMES[a.seat] + (a.kind === 'claim' ? ' 正在想是否接牌…' : ' 正在出牌…')));
+      return;
+    }
     scheduleAi(a);
   }
   function heartbeatTick() {
@@ -761,6 +800,7 @@
     const a = C.awaiting(state);
     if (!a) return;
     if (a.seat === 0 && !autoPlay) return;
+    if (isRemoteHuman(a.seat)) return;   // 等真人，不算"任务缺失"
     const healthy = aiTask && aiTask.epoch === epoch;
     const age = Date.now() - decisionAt;
     if (healthy && age < 12000) return;
@@ -1078,7 +1118,8 @@
   function openLogin(opts) {
     const o = opts || {};
     $('login-modal').classList.remove('hidden');
-    loginTip('');
+    // 带原因进来的（比如"连真人要先登录"）就别一声不响地清空
+    loginTip(o.tip || '');
     setLoginBusy(false);
     const phone = $('login-phone');
     if (phone) phone.value = o.noFill ? '' : (Auth.lastAccount() || '');
@@ -1468,17 +1509,157 @@
     $('home-coins').textContent = A.fmtNum(account.coins);
     $('home-gold').textContent = A.fmtNum(account.gold);
     $('home-avatar').textContent = (account.nick || '牌').slice(0, 1);
-    const hall = A.hallOf(hallId);
-    const q = $('quick-hall');
-    if (q) q.textContent = hall.name + ' · 个旧麻将';
-    const clock = $('act-clock');
-    if (clock) clock.textContent = '23:20';
-    renderLadder();
-    renderOtherGames();
-    if (!$('home-grid').children.length) renderHomeGrid();
+    const nickInput = $('lobby-nick');
+    if (nickInput && !nickInput.value) nickInput.value = Net ? Net.nick() : account.nick;
+    paintLobbyMode();
+  }
+
+  /* ---------------- 大厅：只留「快速匹配」和「快速人机」 ---------------- */
+  function lobbyStatus(text, kind) {
+    const el = $('lobby-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'lobby-status' + (kind ? ' ' + kind : '');
+  }
+
+  /** 真人匹配要「云端可用 + 云端账号」。没登录时不把按钮灰掉——
+   *  灰按钮只会让人以为功能坏了，点了直接弹登录并说清原因更好懂。 */
+  function paintLobbyMode() {
+    const cloudOk = !!(Cloud && Cloud.status && Cloud.status().ready);
+    const onlineOk = cloudOk && !!account && account.source === 'cloud';
+    const btn = $('lobby-match');
+    if (btn) btn.classList.toggle('needs-login', !onlineOk);
+    const hint = $('lobby-hint');
+    if (hint) {
+      hint.textContent = onlineOk
+        ? '和真人坐一桌；人不够的位置由电脑补上，不会让你干等'
+        : (cloudOk ? '连真人需要用手机号登录（游客只能打人机）' : '云端暂时连不上，先打人机吧');
+    }
+    return onlineOk;
+  }
+
+  function lobbyNickValue() {
+    const input = $('lobby-nick');
+    const v = input ? String(input.value || '').trim().slice(0, 12) : '';
+    if (!Net) return v || (account && account.nick) || '牌友';
+    return Net.setNick(v || Net.nick());
+  }
+
+  function doRandomNick() {
+    if (!Net) return;
+    const n = Net.setNick(Net.randomNick());
+    const input = $('lobby-nick');
+    if (input) input.value = n;
+    lobbyStatus('系统给你取了个名字：' + n);
+    playSound('ui');
+  }
+
+  function resetSeatNames() {
+    for (let i = 0; i < 4; i++) NAMES[i] = DEFAULT_NAMES[i];
+    for (let i = 0; i < 4; i++) paintSeatName(i);
+  }
+  function applySeatNames(names, humanCount) {
+    void humanCount;
+    for (let i = 0; i < 4; i++) {
+      NAMES[i] = (names && names[i]) ? names[i] : (Online ? Online.AI_NAMES[i] : DEFAULT_NAMES[i]);
+      paintSeatName(i, Online && Online.isOnline() ? Online.isHumanSeat(i) : i === 0);
+    }
+  }
+  function paintSeatName(seat, isHuman) {
+    const el = $('seat-name-' + seat);
+    if (!el) return;
+    el.textContent = seat === 0 ? NAMES[0] : (SEATS[seat] + ' · ' + NAMES[seat]);
+    el.classList.toggle('is-human', !!isHuman);
+    el.classList.toggle('is-ai', isHuman === false);
+  }
+
+  function doQuickAi() {
+    if (!account) { openLogin(); return; }
+    if (Online) Online.end();
+    resetSeatNames();
+    lobbyStatus('人机对战 · 三个电脑陪你打');
+    startTable('novice');
+  }
+
+  async function doQuickMatch() {
+    if (!account) {
+      lobbyStatus('连真人要先登录云端账号，登录完再点一次「快速匹配」', 'warn');
+      openLogin({ tip: '连真人玩家需要先登录云端账号；游客只能打人机。' });
+      return;
+    }
+    if (!Net || !Online) { lobbyStatus('联机模块没加载成功，先打人机吧', 'warn'); return; }
+    if (!paintLobbyMode()) {
+      lobbyStatus('连真人要先登录云端账号，登录完再点一次「快速匹配」', 'warn');
+      openLogin({ tip: '连真人玩家需要先登录云端账号；游客只能打人机。' });
+      return;
+    }
+
+    const btn = $('lobby-match');
+    if (btn) { btn.dataset.busy = '1'; btn.disabled = true; }
+    let result = null;
+    try {
+      for (let attempt = 0; attempt < 2 && !(result && result.ok); attempt++) {
+        result = await Net.match({
+          nick: lobbyNickValue(),
+          hallId: 'novice',
+          baseBet: A.hallOf('novice').baseBet,
+          onStep: (t) => lobbyStatus(t)
+        });
+        if (result && result.code === 'retry') {
+          lobbyStatus(result.error + '，正在重试…');
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+    } catch (err) {
+      result = { ok: false, error: (err && err.message) || '匹配失败' };
+    }
+    if (btn) { delete btn.dataset.busy; btn.disabled = false; }
+
+    if (!result || !result.ok) {
+      lobbyStatus((result && result.error) || '没匹配上，再试一次', 'warn');
+      return;
+    }
+    lobbyStatus(result.humanCount > 1
+      ? `连上 ${result.humanCount - 1} 位真人，开局！`
+      : '暂时没有别人在线，先和电脑打一局（下一局会自动排人）');
+    startOnlineTable(result);
+  }
+
+  function startOnlineTable(m) {
+    const sess = Online.begin({
+      roomId: m.roomId, seed: m.seed, mySeat: m.mySeat, humanCount: m.humanCount,
+      names: m.names, hallId: m.hallId, baseBet: m.baseBet
+    });
+    sess.onRemote = (seat, action) => applyRemoteAction(seat, action);
+    sess.onStatus = (st) => {
+      if (st.kind === 'offline') {
+        logLine('error', '联机轮询失败：' + (st.error || ''));
+        toast('和云端断了联系，正在重连…');
+      }
+    };
+    applySeatNames(sess.names, sess.humanCount);
+    startTable(m.hallId || 'novice', { online: true });
+    Online.startPolling({ interval: 800 });
+    toast(sess.humanCount > 1 ? '已连上真人，开始对局' : '没有真人空位，电脑补位');
+  }
+
+  function applyRemoteAction(seat, action) {
+    if (!state || state.phase === C.PHASES.OVER) return { ok: false, error: '局面已结束' };
+    if (!action || action.kind === undefined) return { ok: false, error: '动作无效' };
+    let err = null;
+    command('remote', () => {
+      try {
+        C.applyDecision(state, Object.assign({}, action, { seat }));
+      } catch (e) {
+        err = e;
+        throw e;
+      }
+    });
+    return err ? { ok: false, error: err.message } : { ok: true };
   }
   function enterHome() {
     if (!account) { showScreen('splash'); return; }
+    if (Online && Online.isOnline()) { Online.end(); resetSeatNames(); }   // 离开牌桌就退出联机房
     refreshAccount();
     renderHome();
     showScreen('home');
@@ -1555,8 +1736,13 @@
     const rnd = () => base + Math.round(Math.random() * base);
     return [myCoins, rnd(), rnd(), rnd()];
   }
-  function startTable(id) {
+  function startTable(id, startOpts) {
     if (!account) { openLogin(); return; }
+    const opts = startOpts || {};
+    if (!opts.online) {
+      if (Online && Online.isOnline()) Online.end();
+      resetSeatNames();
+    }
     if (id) hallId = id;
     saveHall();
     hideAllLayers();
@@ -1767,14 +1953,22 @@
     });
     on('hall-back', 'click', enterHome);
     on('hall-help', 'click', () => toast('底分越高，输赢越大；段位分只与胜负有关'));
-    on('home-ladder', 'click', () => toast('天梯榜需要联机数据'));
-    on('ladder-more', 'click', () => toast('天梯榜需要联机数据'));
-    on('game-gejiu', 'click', openHall);
-    on('game-shuangkou', 'click', () => toast('双扣还没上线'));
-    on('game-poker', 'click', () => toast('扑克合集还没上线'));
-    on('game-mahjong', 'click', openHall);
-    on('game-match', 'click', () => toast('比赛场需要联机'));
-    on('game-invite', 'click', () => toast('约牌需要联机'));
+
+    /* 新大厅：只有两个入口 */
+    on('lobby-ai', 'click', () => { audioReady = true; if (Sfx) Sfx.unlock(); doQuickAi(); });
+    on('lobby-match', 'click', () => {
+      audioReady = true;
+      if (Sfx) Sfx.unlock();
+      doQuickMatch().catch((err) => lobbyStatus((err && err.message) || '匹配失败', 'warn'));
+    });
+    on('lobby-nick-random', 'click', doRandomNick);
+    on('lobby-nick', 'change', () => {
+      const input = $('lobby-nick');
+      if (!input || !Net) return;
+      const v = Net.setNick(input.value);
+      input.value = v;
+      lobbyStatus('名字定好了：' + v);
+    });
 
     document.querySelectorAll('.home-nav').forEach((nav) => {
       nav.addEventListener('click', (e) => {
@@ -1835,9 +2029,16 @@
     renderSig = '';
     settledState = null;
     state = null;
-    const dice = [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
+    const sess = (Online && Online.isOnline()) ? Online.current() : null;
+    // 联机时所有设备必须洗出同一副牌：用同一个种子的确定性随机数，
+    // 骰子也从这条流里取，否则各家看到的庄家都不一样。
+    const rng = sess ? mulberry32(sess.seed) : Math.random;
+    const dice = sess
+      ? [1 + Math.floor(rng() * 6), 1 + Math.floor(rng() * 6)]
+      : [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
     const play = () => {
-      const setup = C.createGame(settings, Math.random, Object.assign({ variant: variantId }, C.diceSetup(dice)));
+      const setup = C.createGame(settings, rng, Object.assign({ variant: variantId }, C.diceSetup(dice)));
+      if (sess && Online) Online.rotate(setup, sess.mySeat);
       state = setup;
       state.__consumed = 0;
       state.lastDiscard = null;
@@ -1898,6 +2099,8 @@
   /* ---------------- 事件绑定 ---------------- */
   function bind() {
     $('sound-toggle').addEventListener('click', toggleSound);
+    const lobbySound = $('lobby-sound');
+    if (lobbySound) lobbySound.addEventListener('click', toggleSound);
     document.addEventListener('pointerdown', () => {
       audioReady = true;
       if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
@@ -2055,6 +2258,35 @@
       cloud: Cloud ? Cloud.status() : { ready: false, error: '云端模块未加载' }
     });
     /** 云端体检：状态 + 会话 + 一次真实数据面读取（未登录应被 RLS 挡回） */
+    /* 联机调试：不走真实匹配，直接按给定房间参数开一局；再用手动注入模拟对手动作。
+     * 这样浏览器测试能在没有第二个账号的情况下验证「座位旋转 + 远端动作落地」。 */
+    window.__shipingMahjongOnlineStart = (opts) => {
+      const o = opts || {};
+      startOnlineTable({
+        roomId: o.roomId || 'debug-room', seed: o.seed || 20261110, mySeat: o.mySeat || 0,
+        humanCount: o.humanCount || 2, names: o.names || ['我', '对手'],
+        hallId: o.hallId || 'novice', baseBet: 2000
+      });
+      return window.__shipingMahjongOnline();
+    };
+    window.__shipingMahjongOnline = () => {
+      const s = Online && Online.current();
+      if (!s) return { online: false };
+      const a = state ? C.awaiting(state) : null;
+      return {
+        online: true, roomId: s.roomId, mySeat: s.mySeat, humanCount: s.humanCount,
+        names: s.names.slice(), seq: s.seq, lastPull: s.lastPull,
+        awaiting: a ? { seat: a.seat, kind: a.kind } : null,
+        remoteTurn: a ? isRemoteHuman(a.seat) : false
+      };
+    };
+    window.__shipingMahjongRemote = (seat, action) => {
+      if (!Online || !Online.isOnline()) return { ok: false, error: '不在联机对局中' };
+      applyRemoteAction(Number(seat) || 0, action || {});
+      const a = state ? C.awaiting(state) : null;
+      return { ok: true, awaiting: a ? { seat: a.seat, kind: a.kind } : null };
+    };
+
     window.__shipingMahjongCloud = async () => {
       const st = Cloud ? Cloud.status() : { ready: false, error: '云端模块未加载' };
       const out = { status: st, mode: Auth.currentMode(), session: null, probe: null, account: null,
@@ -2285,10 +2517,16 @@
     applyBrand();
     if (!storageAvailable()) toast('浏览器禁用了本地存储，登录状态与游客进度都无法保存');
     syncSoundButton();
+    if (Sfx) Sfx.setEnabled(soundEnabled);
     bind();
     bindShell();
     loadSeatBalances();
     installDebugApi();
+    /* iOS 只允许在用户手势里启动 AudioContext：第一次点哪里都顺手解锁一次，
+     * 否则牌桌里第一次出牌是没声音的（这是移动端最容易踩的坑） */
+    const unlockAudio = () => { audioReady = true; if (Sfx) Sfx.unlock(); };
+    document.addEventListener('pointerdown', unlockAudio, { once: true });
+    document.addEventListener('keydown', unlockAudio, { once: true });
     heartbeat = setInterval(heartbeatTick, HEARTBEAT_MS);
     startSession().catch((err) => {
       showScreen('splash');

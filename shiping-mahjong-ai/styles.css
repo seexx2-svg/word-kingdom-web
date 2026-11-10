@@ -2200,3 +2200,86 @@ body{background-image:linear-gradient(180deg,#00190d12,#00180d22),url("assets/ma
 
 /* .am-rename 的 display:flex 与 .hidden 同权重，靠后面的规则会赢，必须显式压回来 */
 .am-rename.hidden{display:none}
+
+/* =====================================================================
+   13. 联机大厅（v0.7.0）
+   只有一个目的：让人一眼看出「点哪个开始」。所以整屏只有两个按钮，
+   其余（个旧/宝秀、天梯、商城、比赛、约牌）全部下线，不做置灰占位。
+   ===================================================================== */
+.screen.home{background:radial-gradient(ellipse at 50% 22%,#1d4634,#081b14 72%)}
+.lobby-top{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:14px 18px 6px;position:relative;z-index:44}
+.lobby-top .player-chip{z-index:1}
+.lobby-sound{margin-left:0;flex:0 0 auto}
+.lobby{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(10px,2.2vh,22px);padding:8px 18px clamp(18px,4vh,40px);position:relative;z-index:41}
+.lobby-brand{text-align:center;line-height:1.15}
+.lobby-brand strong{display:block;font-size:clamp(26px,5.2vw,42px);letter-spacing:.18em;color:#ffe6b0;text-shadow:0 2px 0 #7a4d18,0 8px 22px #000a}
+.lobby-brand small{display:block;margin-top:8px;font-size:12px;letter-spacing:.22em;color:#c9b184}
+.lobby-nickrow{display:flex;align-items:center;gap:8px;width:min(430px,94vw);padding:8px 10px;border-radius:14px;background:#04180f96;border:1px solid #e2c68a4d}
+.lobby-nickrow label{font-size:12px;color:#d9c295;letter-spacing:.1em;flex:0 0 auto}
+.lobby-nickrow input{flex:1;min-width:0;height:34px;border-radius:9px;border:1px solid #e2c68a55;background:#0b2a1e;color:#ffeecb;font-size:14px;padding:0 10px;letter-spacing:.06em}
+.lobby-nickrow input:focus{outline:2px solid #e8c37e88;border-color:#e8c37e}
+.lobby-nickrow button{flex:0 0 auto;height:34px;padding:0 14px;border-radius:9px;border:1px solid #e2c68a66;background:#1d4433;color:#f0d9a8;font-size:13px}
+.lobby-nickrow button:active{transform:translateY(1px)}
+.lobby-actions{display:flex;flex-direction:column;gap:12px;width:min(430px,94vw)}
+.lobby-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:clamp(62px,11vh,78px);border-radius:16px;border:1px solid #e2c68a5c;background:linear-gradient(#1e4a36,#0d2a1f);color:#f6e2b6;box-shadow:0 6px 18px #0008,inset 0 1px 0 #ffffff1a}
+.lobby-btn b{font-size:20px;letter-spacing:.14em}
+.lobby-btn small{font-size:11px;color:#b9c9b6;letter-spacing:.06em}
+.lobby-btn.primary{background:linear-gradient(#d8b062,#96601f);color:#fff8e6;border-color:#ffe7b199;box-shadow:0 8px 22px #0009,inset 0 1px 0 #fff5}
+.lobby-btn.primary small{color:#ffe9c4cc}
+.lobby-btn:active{transform:translateY(1px)}
+.lobby-btn[disabled]{opacity:.5;filter:grayscale(.35);cursor:not-allowed}
+.lobby-status{min-height:18px;font-size:13px;color:#ffe3a8;letter-spacing:.04em;text-align:center}
+.lobby-status.warn{color:#ffb59a}
+.lobby-hint{font-size:12px;color:#a9beaf;text-align:center;margin:0;letter-spacing:.02em}
+
+/* 手机横屏：大厅改成左右两栏，避免竖着堆两层按钮把屏幕占满 */
+@media (orientation:landscape) and (max-height:560px){
+  .lobby-top{padding:8px 14px 2px}
+  .lobby{gap:8px;padding:4px 14px 10px;flex-direction:row;align-items:center;justify-content:space-evenly;flex-wrap:wrap}
+  .lobby-brand{flex:1 1 40%;text-align:left}
+  .lobby-brand strong{font-size:clamp(20px,3.4vw,30px)}
+  .lobby-brand small{font-size:10px;margin-top:4px}
+  .lobby-nickrow,.lobby-actions{width:min(340px,48vw)}
+  .lobby-btn{height:clamp(46px,13vh,60px)}
+  .lobby-btn b{font-size:17px}
+  .lobby-btn small{font-size:10px}
+  .lobby-status,.lobby-hint{flex-basis:100%;min-height:0}
+}
+
+/* 手机横屏的牌桌：顶栏压扁、手牌缩小、座位卡片收窄，保证 14 张牌完整可见 */
+@media (orientation:landscape) and (max-height:560px){
+  .topbar{height:38px;flex-basis:38px;padding:0 12px}
+  .top-actions{gap:6px}
+  .top-stat,.icon-button,.new-game-button,.sound-toggle,.log-toggle{font-size:10px;height:26px;padding:0 9px}
+  .brand small{display:none}
+  .game-stage{padding:5px 8px 6px}
+  .table-frame{border-radius:22px;padding:6px}
+  .hand-panel{left:150px;bottom:4px;width:calc(100% - 172px);padding:0 6px 4px}
+  .hand-heading{height:14px;font-size:8px}
+  .hand-tiles{min-height:44px;gap:2px;padding:2px 2px 3px}
+  .hand-tiles .tile-face{width:clamp(24px,3.4vw,40px);height:clamp(34px,6.4vh,56px)}
+  .seat-top{padding:3px 8px 3px 3px}
+  .avatar{width:26px;height:26px;font-size:11px}
+  .seat-meta b{font-size:10px}.seat-score{font-size:10px}
+  .seat-south{bottom:12%}
+  .seat-south .avatar{width:32px;height:32px;font-size:12px}
+  .seat-south .seat-meta b,.seat-south .seat-score{font-size:11px}
+  .opponent-hand{height:30px}
+  .tile-back{width:26px;height:34px;flex-basis:26px}
+  .action-bar{padding:3px 6px;gap:5px}
+  .action-button{padding:6px 13px;font-size:11px}
+  .hud-clock{width:52px;height:52px;border-radius:14px}
+  .hud-clock b{font-size:22px}
+  .table-tablemark{font-size:11px}
+}
+
+/* 账号浮层要盖在 .lobby（z-index:41）之上，否则点不到「改昵称」 */
+.screen.home .account-menu{z-index:60;top:70px}
+
+/* 横屏微调：左边品牌、中间昵称、右边两个按钮，别让按钮那列挤成一条 */
+@media (orientation:landscape) and (max-height:560px){
+  .lobby-brand{flex:1 1 32%;text-align:left}
+  .lobby-nickrow{width:min(300px,36vw)}
+  .lobby-actions{width:min(330px,38vw);gap:8px}
+  .lobby-status{font-size:12px}
+}
