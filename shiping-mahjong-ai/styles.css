@@ -3173,8 +3173,8 @@ body.table-3d .center-table .center-hud .discard-callout{
 /* 准备层出现时读秒退场、静态座位卡压暗，避免和「换桌 / 准备」及四家头像重复 */
 body.table-ready-on .center-table .center-hud{opacity:0!important}
 body.table-ready-on .seat .pcard{opacity:.36}
-/* 侧家竖着的手牌背面：SVG 的斜牌墙已经把「牌」交代清楚了，这里压暗别抢戏 */
-body.table-3d .vertical-back{opacity:.34}
+/* 侧家竖着手牌：v0.12.0 曾把它压到 0.34「别抢戏」，结果看着像毛玻璃；
+   v0.12.1 起它就是一列正常的牌背，恢复不透明。 */
 
 /* 闪电末端：放射星芒，别做成一个规整的蓝圆环 */
 .result-burst{
@@ -3192,4 +3192,155 @@ body.table-3d .vertical-back{opacity:.34}
   0%{transform:rotate(0) scale(.4);opacity:0}
   15%{opacity:.95}
   100%{transform:rotate(42deg) scale(1.5);opacity:0}
+}
+
+/* =====================================================================
+   22. v0.12.1 按参考截图重排「牌怎么摆」：三家手牌 / 四片牌河 / 四家头像
+   ---------------------------------------------------------------------
+   前提：桌面已改成弱透视（assets/mahjong-table-3d.svg，绒面 6%~94%），
+   所以左右两侧的牌背与头像终于是「在桌子上」而不是压在木框上。
+   22 节是新的最终裁决层，只改位置与尺寸，不动牌面画法与任何逻辑。
+   ===================================================================== */
+
+/* ---------- 22.0 侧家牌背的「长相」：不分方向，横竖屏都该是深绿牌背 ----------
+   小牌上原来那圈 3px/8px 内描边会糊满整张牌，看着发白；这里统一换成深一档的纯牌背。
+   尺寸各自在 22.2（横屏）与竖屏回退里定，本节只管外观。 */
+.table-screen .vertical-back .tile-back{
+  border-radius:3px!important;
+  background:linear-gradient(150deg,#4aa663 0%,#1e7448 58%,#0d5137 100%)!important;
+  border:1px solid #8ec878!important;
+  box-shadow:0 1px 2px #00180ecc,0 1px 0 #ffffff2e inset!important;
+}
+.table-screen .vertical-back .tile-back:before{
+  inset:2px!important;border:0!important;box-shadow:none!important;
+  background:repeating-linear-gradient(45deg,#ffffff14 0 3px,#00000000 3px 6px)!important;
+}
+.table-screen .vertical-back .tile-back:after{display:none!important}
+
+@media (orientation:landscape){
+/* ---------- 22.1 四家头像：对家骑在桌沿正中，左右两家贴侧边中部 ----------
+   参考图：北家头像在顶墙上方正中；东/西家头像在左右侧边，正压着自己那列手牌的头。 */
+.table-screen .seat-north{top:8.4%!important}
+.table-screen .seat-west{
+  left:2.4%!important;right:auto!important;top:37%!important;
+  transform:none!important;align-items:flex-start!important;
+}
+.table-screen .seat-east{
+  right:2.4%!important;left:auto!important;top:37%!important;
+  transform:none!important;align-items:flex-end!important;
+}
+.table-screen .seat-west .pcard,.table-screen .seat-east .pcard{
+  box-shadow:0 5px 14px #000a,0 1px 0 #ffffff1a inset!important;
+}
+
+/* ---------- 22.2 三家手牌：牌背要能看出是一张张牌，不再被裁成一条线 ---------- */
+/* 对家：一排牌背。位置改成绝对定位，放在「牌墙内侧」而不是墙外面 */
+.table-screen .seat-north .opponent-hand{
+  position:absolute!important;top:162px!important;left:50%!important;
+  transform:translateX(-50%)!important;margin:0!important;
+  height:46px!important;max-width:none!important;padding:0!important;
+  overflow:visible!important;
+}
+/* 对家的副露靠在自己手牌左侧（对他们来说是右手边），不跟手牌抢中间 */
+.table-screen .seat-north .meld-row{
+  position:absolute!important;top:162px!important;
+  left:calc(50% - 178px)!important;transform:translateX(-100%)!important;
+  justify-content:flex-end!important;margin:0!important;max-width:min(34vw,460px)!important;
+}
+.table-screen .seat-north .opponent-hand .tile-back{
+  width:32px!important;height:42px!important;flex:0 0 32px!important;
+  margin-left:-7px!important;border-radius:4px!important;
+}
+.table-screen .seat-north .opponent-hand .tile-back:first-child{margin-left:0!important}
+/* 左右两家：贴着自己头像往下的一列小牌背，13 张分得开、看得出是一张张牌。
+   以前是 34×52 的竖版牌背旋转 90° 再叠 -34px，只露出渐变最暗的一小条，
+   远看就是一根空心绿条 —— 和参考图里「一摞牌背」完全不是一回事。 */
+.table-screen .vertical-back{
+  top:56px!important;
+  height:auto!important;
+  width:28px!important;
+  overflow:visible!important;
+  gap:0!important;
+}
+.table-screen .vertical-back .tile-back{
+  width:28px!important;height:19px!important;flex:0 0 19px!important;
+  margin:0 0 3px!important;
+  transform:none!important;
+}
+/* 手牌列贴绒面内侧（felt 从 6.25% 起），不压在木头边框上 */
+.table-screen .seat-west .vertical-back{left:58px!important;right:auto!important}
+.table-screen .seat-east .vertical-back{right:58px!important;left:auto!important}
+/* 副露跟着手牌走，别停在头像底下 */
+.table-screen .seat-west .vertical-meld{left:98px!important;top:56px!important}
+.table-screen .seat-east .vertical-meld{right:98px!important;top:56px!important}
+
+/* 读秒盒下移一点：上家牌河要有两行的位置，不能让它们叠在一起 */
+.table-screen .center-table .center-hud{position:absolute!important;top:calc(50% + 40px)!important;transform:translate(-50%,-50%)!important}
+
+/* ---------- 22.3 四片牌河：围着中央读秒盒摆成一个方框（只作横屏） ----------
+   北/南两片横着长（一行 6 张），西/东两片竖着长（一行 2 张）。
+   四片在横向互相错开（西片右沿 43.3% < 北片左沿 44.7%），所以谁也不压谁。
+   竖屏中央区又高又窄，套这个方框会压住读秒盒，所以整节留在横屏媒体查询内。 */
+.table-screen .center-table .discard-zone{position:absolute!important;inset:0!important;display:block!important}
+.table-screen .center-table .discard-stack{
+  display:flex!important;flex-wrap:wrap!important;
+  gap:2px!important;padding:0!important;
+  align-content:flex-start!important;justify-content:flex-start!important;
+  align-items:flex-start!important;overflow:hidden!important;
+  /* 一行正好 6 张：6×24 + 5×2 */
+  width:154px!important;
+}
+.table-screen .center-table .discard-stack .tile-face{
+  width:24px!important;height:34px!important;flex:0 0 24px!important;
+  margin:0!important;transform:none!important;border-radius:3px!important;
+}
+.table-screen .center-table .discard-north{
+  top:27.7%!important;bottom:auto!important;left:50%!important;right:auto!important;
+  transform:translateX(-50%)!important;height:19.6%!important;width:154px!important;
+}
+.table-screen .center-table .discard-south{
+  top:68.9%!important;bottom:auto!important;left:50%!important;right:auto!important;
+  transform:translateX(-50%)!important;height:17.9%!important;width:154px!important;
+  align-content:flex-end!important;
+}
+.table-screen .center-table .discard-west,
+.table-screen .center-table .discard-east{
+  top:28.6%!important;bottom:auto!important;
+  transform:none!important;height:57.1%!important;width:50px!important;
+}
+.table-screen .center-table .discard-west{right:calc(50% + 96px)!important;left:auto!important}
+.table-screen .center-table .discard-east{
+  left:calc(50% + 96px)!important;right:auto!important;
+  justify-content:flex-end!important;
+}
+
+/* ---------- 22.4 小屏：整体按比例缩一号，否则牌河会互相压住 ---------- */
+@media (max-width:560px){
+  .table-screen .center-table .center-hud{top:calc(50% + 20px)!important}
+  .table-screen .center-table .discard-stack{width:78px!important}
+  .table-screen .center-table .discard-stack .tile-face{
+    width:18px!important;height:24px!important;flex:0 0 18px!important;
+  }
+  .table-screen .center-table .discard-north{top:27.7%!important;height:19.6%!important}
+  .table-screen .center-table .discard-south{top:68.9%!important;height:17.9%!important}
+  .table-screen .center-table .discard-west,
+  .table-screen .center-table .discard-east{width:34px!important;height:57.1%!important}
+  .table-screen .center-table .discard-west{right:calc(50% + 44px)!important}
+  .table-screen .center-table .discard-east{left:calc(50% + 44px)!important}
+  .table-screen .center-table .discard-west .tile-face,
+  .table-screen .center-table .discard-east .tile-face{
+    width:14px!important;height:19px!important;flex:0 0 14px!important;
+  }
+}
+}
+
+/* ---------- 22.5 竖屏不做 3D：SVG 被拉成竖条后牌墙会变成大绿块 ----------
+   竖屏回落到平面机台（木框 + 绒面渐变），牌位沿用旧的一套。 */
+@media (orientation:portrait){
+  body.table-3d .table-frame{background-image:none!important;background-color:#123a2b!important}
+  body.table-3d .felt{
+    background:radial-gradient(circle at 50% 42%,#17764f,#0d5a3f 62%,#073427)!important;
+    border-radius:14px!important;
+    box-shadow:inset 0 0 0 2px #d9bd7d77,inset 0 0 40px #001b1288!important;
+  }
 }

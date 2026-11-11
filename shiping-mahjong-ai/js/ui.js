@@ -3024,7 +3024,40 @@
       logLine('recover', '调试：人为丢弃 AI 任务');
       return true;
     };
-    /** 构造一次「吃牌」现场，返回期望的顺子信息，用于视觉回归 */
+    /** 造一次「轮到我吃，但我不点」的局面：用来验证接牌读秒会自动过、牌局不卡死 */
+    window.__shipingMahjongForceHumanClaim = () => {
+      if (!state) return null;
+      stopAi();
+      // 只有「上家」打出的牌我才能吃：nextSeat(prevSeat(0)) === 0
+      const from = C.prevSeat(0);
+      // 我：留 4 / 5 条，正好吃 6 条
+      state.hands[0] = [4, 5, 8, 9, 12, 13, 16, 17, 20, 20, 24, 28, 32];
+      state.melds[0] = [];
+      // 其他三家手上不留 4/5/6/7 条，保证「吃」只可能发生在我这里
+      [1, 2, 3].forEach((other) => {
+        const pool = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23];
+        const keep = state.hands[other].filter((x) => ![4, 5, 6, 7].includes(x));
+        let i = 0;
+        while (keep.length < 13) keep.push(pool[(i++) % pool.length]);
+        state.hands[other] = keep.slice(0, 13);
+        state.melds[other] = [];
+      });
+      state.lastDiscard = { tile: 6, from };
+      state.discards[from].push(6);
+      state.phase = C.PHASES.CLAIM;
+      state.current = from;
+      // 只留我这一手：别家一律「过」，否则 AI 可能先接走，用例就不确定了
+      state.pendingClaims = C.collectClaimCandidates(state).filter((c) => c.seat === 0);
+      state.claimCursor = 0;
+      state.__consumed = state.events.length;
+      epoch += 1;
+      pump('force-human-claim');
+      return {
+        from,
+        awaiting: myTurnKind(),
+        claims: state.pendingClaims.map((c) => ({ seat: c.seat, actions: c.actions.map((a) => a.type) }))
+      };
+    };
     window.__shipingMahjongForceChi = () => {
       if (!state) return null;
       stopAi();

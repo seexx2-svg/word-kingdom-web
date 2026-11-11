@@ -1,6 +1,6 @@
 {
   "name": "shiping-mahjong-ai",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": true,
   "description": "石屏麻将原生网页单机版 · ai-mahjong-next 分支（状态机重构 + 棋牌外壳 + 云端账号与档案）",
   "license": "GPL-3.0-or-later",

@@ -786,27 +786,26 @@ test('读秒：轮到你吃碰杠时不点，超时自动过，牌局不能卡�
     window.__shipingMahjongSetTurnSeconds(1);
     window.__shipingMahjongStartTable('novice');
   });
-  /* 等一次「轮到我决定接牌」：这时玩家什么都不点。
-     以前读秒只管出牌阶段，人不动就永远停在 claim，牌墙不再动 —— 整局卡死。 */
-  const sawClaim = await page.waitForFunction(() => {
-    const c = window.__shipingMahjongClock();
-    return c.phase === 'claim' && window.__shipingMahjongClaimAwaiting();
-  }, null, { timeout: 40000 }).then(() => true).catch(() => false);
-  assert.ok(sawClaim, '40 秒内应该出现一次轮到我接牌的机会');
-
+  /* 直接构造「轮到我吃 6 条」的局面，不靠随机等牌：
+     以前读秒只倒计时出牌阶段，人不点就永远停在 claim，牌墙不再动 —— 整局卡死。 */
+  await page.waitForFunction(() => !!window.__shipingMahjongState(), null, { timeout: 8000 });
+  const forced = await page.evaluate(() => window.__shipingMahjongForceHumanClaim());
+  assert.ok(forced, '要能构造出接牌局面');
+  assert.equal(forced.awaiting, 'claim', '构造后必须轮到我决定接牌，实际 ' + JSON.stringify(forced));
   const wallBefore = await page.evaluate(() => window.__shipingMahjongState().wall.length);
-  /* 什么都不做，牌局必须自己往前走：phase 离开 claim，且牌墙继续减少 */
-  await page.waitForFunction((w) => {
-    const s = window.__shipingMahjongState();
-    return s.phase !== 'claim' || s.wall.length < w;
-  }, wallBefore, { timeout: 12000 });
-  await page.waitForTimeout(1500);
+
+  /* 什么都不点：读秒到 0 必须自动「过」，phase 离开 claim */
+  await page.waitForFunction(() => window.__shipingMahjongState().phase !== 'claim', null, { timeout: 15000 });
   const after = await page.evaluate(() => {
     const s = window.__shipingMahjongState();
-    return { phase: s.phase, wall: s.wall.length, clock: window.__shipingMahjongClock() };
+    return {
+      phase: s.phase, wall: s.wall.length,
+      myMelds: document.querySelectorAll('#meld-0 .meld-group').length,
+      clock: window.__shipingMahjongClock()
+    };
   });
-  assert.ok(after.wall < wallBefore || after.phase === 'over',
-    '接牌超时后牌局要继续走，实际 wall ' + wallBefore + ' → ' + after.wall + '，phase=' + after.phase);
+  assert.equal(after.myMelds, 0, '超时只能是「过」，不能替我吃碰杠');
+  assert.ok(after.wall <= wallBefore, '接牌超时后牌局要继续走：wall ' + wallBefore + ' → ' + after.wall);
   assert.ok(!(after.clock.running && after.clock.phase === 'claim' && after.clock.left === 1),
     '不能停在一个永远读 1 秒的接牌倒计时上');
   assert.deepEqual(page.__errors, [], '接牌超时兜底不应报错：' + page.__errors.join(' | '));
