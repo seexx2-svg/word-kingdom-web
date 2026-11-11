@@ -3334,7 +3334,17 @@ body.table-ready-on .seat .pcard{opacity:.36}
 }
 }
 
-/* ---------- 22.5 竖屏不做 3D：SVG 被拉成竖条后牌墙会变成大绿块 ----------
+/* ---------- 22.5 手牌区：撕掉深色底板，14 张牌直接摆在绒面上（参考图就是这样） ----------
+   「我的手牌 / N 张 / 点击牌面出牌」那行字早就是 display:none，这里再把底板与描边摘掉；
+   同时把整条手牌上移到绒面内沿，别压在木头边框上。 */
+.table-screen .hand-panel{
+  background:none!important;
+  border:0!important;
+  box-shadow:none!important;
+  bottom:calc(8px + 3.4vh)!important;
+}
+
+/* ---------- 22.6 竖屏不做 3D：SVG 被拉成竖条后牌墙会变成大绿块 ----------
    竖屏回落到平面机台（木框 + 绒面渐变），牌位沿用旧的一套。 */
 @media (orientation:portrait){
   body.table-3d .table-frame{background-image:none!important;background-color:#123a2b!important}
