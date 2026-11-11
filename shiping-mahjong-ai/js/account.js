@@ -98,6 +98,9 @@
     const deltas = [0, 0, 0, 0];
     const reasons = ['', '', '', ''];
     const kongDeltas = [0, 0, 0, 0];
+    // 每家实际付几倍：点炮时放炮方 2 倍、其余两家各 1 倍；自摸三家一律 3 倍。
+    // 结算面板逐家读它，避免所有人都写死「1 倍」。
+    const multiples = [0, 0, 0, 0];
     const kongs = [];
     (Array.isArray(o.kongs) ? o.kongs : []).forEach((k) => {
       const seat = Number(k && k.seat);
@@ -119,7 +122,7 @@
       }
       return {
         type, baseBet, multiplier, unit, deltas, reasons, kongs, kongDeltas,
-        total: 0, busted: [false, false, false, false]
+        multiples, total: 0, busted: [false, false, false, false]
       };
     }
     const winner = o.winnerSeat;
@@ -127,8 +130,13 @@
     const due = [0, 0, 0, 0];
     for (let s = 0; s < 4; s++) {
       if (s === winner) continue;
-      if (type === 'discard') due[s] = s === discarder ? unit * 2 : unit;
-      else due[s] = unit * 2;                       // 自摸：三家各付双倍
+      if (type === 'discard') {
+        multiples[s] = s === discarder ? 2 : 1;
+        due[s] = unit * multiples[s];
+      } else {
+        multiples[s] = 3;                          // 自摸：三家各付 3 倍
+        due[s] = unit * 3;
+      }
     }
     const busted = [false, false, false, false];
     let total = 0;
@@ -146,7 +154,7 @@
     }
     deltas[winner] = total + kongDeltas[winner];
     reasons[winner] = type === 'self' ? '自摸' : '胡';
-    return { type, baseBet, multiplier, unit, deltas, reasons, kongs, kongDeltas, total, busted };
+    return { type, baseBet, multiplier, unit, deltas, reasons, kongs, kongDeltas, multiples, total, busted };
   }
 
   /** 段位分变化：赢家 +7，点炮 -3，其余 -2（无庄家，所以没有倍率） */

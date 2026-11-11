@@ -2,7 +2,7 @@
 
 > 分支：`ai-mahjong-next`　目录：`shiping-mahjong-ai/`
 > 基线：`shiping-mahjong` 分支（提交 `845dd27`）的完整源码
-> 版本：`0.9.0`（`package.json`）
+> 版本：`0.12.0`（`package.json`）
 >
 > 品牌说明：v0.9.0 起平台统一叫「**红河麻将**」（石屏 / 宝秀 / 个旧都在红河州），
 > 「石屏麻将」降级为其中一种玩法名。下面早于 v0.9.0 的章节仍按当时的叫法记录，未回改。
@@ -717,6 +717,21 @@ npm run test:cloud      8 条全通过
 11. 新增调试钩子：`SetTurnSeconds` / `Ready` / `ShowReady` / `SetVariant` / `ChiPreview` / `MeldPreview`。`StartTable` 改成 `instant:true`，避免准备层挡住几何测量。
 12. 测试：`npm test` **120** / `npm run test:browser` **58**（新增读秒自动出牌、右侧按钮与吃牌小牌组、准备层 3 条；立直皮肤用例改成同时验证 3D 梯形伪元素与一键回滚）/ `npm run test:cloud` **8**。截图重新出了一轮，桌面 1440×900 肉眼验收过梯形桌、江景、准备层与吃牌小牌组。
 
+## 五点九、v0.12.0：高仿 3D 牌桌 / 剩牌位置 / 遮罩翻案 / 结算倍数与节奏 / 头像
+
+用户给了第四张参考图（真实的「个旧麻将」牌桌），并指出上一版「还是没有出现这种 3D 效果」。逐条点名：中间剩余牌不显示、右上角显示剩余牌数、被吃碰过的牌留在牌面加遮罩且按顺序、长闪电劈完再出计分、自摸/胡牌标题、计分倍数与放炮方、四家头像高仿。
+
+1. **「还是不像 3D」的根因**：v0.11.0 的梯形只是三层 `clip-path` 伪元素，而四条 `.wall-strip` 依旧是**平铺在绒面中央的绿色直条**，既没有牌的厚度也没有沿桌边的透视；参考图里最关键的立体感恰恰来自「贴着木框、向中间倾斜、能看到白色牌面与绿色牌背厚度」的四面牌墙。这一轮改成程序化生成 `assets/mahjong-table-3d.svg`：一张 1600×900 图里对齐江景 / 地砖 / 透视木框（顶面高光 + 左右斜梁 + 四角 45° 斜接）/ 金边 / 梯形绿绒面 / 四面 17 墩斜牌墙。左右墙每墩沿斜边单位向量 `u` 与法向 `v` 张成平行四边形，依次画深绿底影 → 绿色牌背 → 白色牌面（两个凹点）→ 分隔高光；上下墙画绿色牌背。CSS 只做一件事：`body.table-3d .table-frame` 把这张图铺成 `100% 100%`，旧伪元素与中央平铺条全部 `display:none`，DOM 内容层坐标一行不动。`#setting-3d` 关掉仍能整套回滚到平面机台。
+2. **剩牌改到右上角**：`#wall-count` 文案从「牌墙 N 墩」改成「剩牌:N张」（直接读 `state.wall.length`），外包一个 `.remain-stat` 小面板（小牌图 + `HH:MM` 时钟 + 数字），`order:9` 排到 `.top-actions` 最右；`paintWallClock()` 每 30 秒走一格。中央 HUD 顺手收成参考图里那个小黑盒（只留读秒 + 底注），多余文字行隐藏；准备层出现时给 body 加 `table-ready-on`，让读秒与静态座位卡退场，不再和「换桌 / 准备」叠在一起。
+3. **牌河遮罩翻案（回到带遮罩，但按顺序）**：v0.11.0 把 ghost 全删了，这次明确要「还是显示，只是加遮罩，按顺序排列」。内核 `claimDiscard()` 仍会 `splice` 掉被取走的牌，所以 UI 侧新增 `discardTimeline(seat)`：遍历 `state.events`，`discard` 事件入 `full[]`，`chi/peng/gang(exposed)` 且 `from === seat` 的事件把「该家最后一张弃牌」标进 `claimed`。渲染时按 `full` 原序输出，`claimed` 下标渲染成 `.claimed-ghost`（斜纹遮罩 + 虚线描边 + 降亮度），其余正常牌；再用「去掉遮罩牌后 === `state.discards[seat]`」校验对齐，对不上就只画 live，绝不错位。**踩坑**：`__shipingMahjongForceChi()` 直接 `discards.push()` 而不写 discard 事件，导致时间线少一张 —— 补了「claim 事件找不到配对 discard 时，自己补一张被取走的牌」的分支，并新增 `__shipingMahjongDiscardTimeline()` 让用例核对同一套时间线。
+4. **计分倍数**：内核计分表本来就是 `selfDraw {9,-3}` / `discard {4,-2,-1}`，但 `account.js` 的 `computeRound` 自摸写的是 `unit × 2`（三家各付 2 倍），与界面「自摸 3 倍」不一致。改成 `unit × 3`，并新增 `multiples[]`（点炮 `[0,1,1,2]`、自摸 `[0,3,3,3]`）供结算逐家显示，不再所有人都写死「1 倍」。**踩坑**：`multiples` 一开始声明在「荒牌 return」之后，draw 分支直接 `ReferenceError: Cannot access before initialization` —— 提到函数顶部与其它数组一起声明。四家零和、破产截断、杠分先过账这些约束全部保留。
+5. **结算标题与放炮方**：`resultTitle()` 严格只返回「自摸」/「胡牌」；牌型、放炮方、倍数挪到新增的 `#result-subtitle`。`resultCard()` 给赢家加「放炮方」行、给点炮方卡片加 `.is-discarder` 与醒目「放炮」标，每家倍数读 `settlement.multiples[seat]`。新增 `__shipingMahjongForceDiscardWin(from)` 构造点炮现场用于回归。
+6. **先劈闪电、后出计分**：`showResult()` 给结算层加 `is-striking-phase`，CSS 用 `visibility:hidden + opacity:0` 只藏计分区（**保留占位**，否则 `fitResult()` 会因高度突变算错牌宽）；标题、副标题、完整牌型立刻可见。`strikeWinningTile(done)` 播完 1.5 秒动画后回调移除该状态，计分带 0.42s 过渡淡入。**踩坑**：旧的「结算按钮可点」用例用 `elementFromPoint`，闪电阶段按钮被 `visibility:hidden` 挡着会误判 —— 用例改成先等 `is-striking-phase` 结束再验。
+7. **长闪电重画**：v0.10.0 那道 56×150 的小闪电被嫌难看。第一次改成 132×540 的「填充锯齿带 + 30px 粗描边」，实测横向被压成 0.55 倍后凹口被光晕填平，看起来像一条白斜带；末端 190px 发光圆盘又像放大镜。最终改成**细长 Z 字折线**（4 段折返）配四层递减描边（22/12/5.5/2.4px，紫→蓝→青→白）、4 条分叉、末端星芒，爆闪缩到 136px 并换成 `repeating-conic-gradient` 放射线 + 径向渐隐，另加全屏白光与雷声。
+8. **四家头像高仿**：重画 `assets/avatars/{you,north,east,west}.svg` 为 256×256 圆形古风动漫半身像（统一五官骨架，只换配色 / 头饰：官帽 / 发簪 / 头巾 / 发髻），带双层金边；`.pcard-face` / `.ready-face` / `.rs-face` / 大厅头像统一 `border-radius:50%` + 铜金描边 + 光晕。**踩坑**：历史 CSS 里 `.avatar-you{background:radial-gradient(...)}` 是简写，会把 `background-image` 重置掉，所以四条 `background-image:url(...)` 必须放在 `styles.css` 第 21 节最末尾并带 `!important`。准备层与结算卡改为挂同一个 `.avatar-*` 类，不再写首字当头像。
+9. **读秒偶发失败的真根因：接牌阶段没有超时**。全量浏览器跑时「15 秒自动出牌」偶发超时，最初以为是计时器竞态，加了 `turnClockSeconds` 重启与心跳后仍然失败。用探针逐 2 秒采样复现：牌局根本不是卡在出牌，而是**停在 `phase=claim` 等玩家决定碰/吃/过**——读秒只覆盖出牌阶段，玩家不点「过」，`awaiting()` 永远返回 seat 0 的 claim，牌墙不动、谁也打不了牌，这正是用户历史反馈「电脑玩家停手导致整局卡死」的同一类问题，只是这次卡的是真人。修复：`refreshTurnClock()` 重写为按 `myTurnKind()`（discard / claim）统一倒计时，claim 超时走新增的 `autoPassClaim()` 自动「过」并提示「读秒结束，自动过」；心跳看门狗对 claim 同样生效。新增回归用例「轮到你吃碰杠时不点，超时自动过，牌局不能卡死」钉死这个场景。
+10. 测试：`npm test` **120** / `npm run test:browser` **61**（新增高仿 3D / 剩牌 / 头像 / 长闪电，点炮标题 / 放炮方 / 2-1-1 倍数 / 计分延迟，以及接牌超时防卡死；牌河用例翻案、立直皮肤用例改验 SVG 背景、结算标题用例改验「自摸」+ 副标题）/ `npm run test:cloud` **8**。浏览器全量连跑两轮 61/61 稳定。截图重出 18 张，桌面版肉眼验收过梯形立体桌、四家圆形头像、右上角剩牌、准备层、闪电与计分面板（点炮胡副标题「放炮：阿梅 · 西家 · 放炮方 2 倍 · 其余 1 倍」，放炮卡片带「放炮」标付 -4,000）。
+
 ## 六、试玩方式
 
 1. **本地跑**（推荐，功能完整）：
@@ -729,7 +744,7 @@ npm run test:cloud      8 条全通过
 
 2. **直接开文件**：双击 `index.html` 也能玩，只是调试接口在 `file://` 下不启用。
 
-3. **独立在线预览（v0.8.0 已覆盖更新，与 gh-pages 无关）**：
+3. **独立在线预览（当前线上版本 v0.12.0，与 gh-pages 无关）**：
    <https://shiping-mahjong-ai.app.workbuddy.host/?sharecode=2MS3R37OYC>
    该地址由本次项目目录单独发布，原线上 `gh-pages`（`https://seexx2-svg.github.io/word-kingdom-web/`）**没有**被改动。
 
@@ -752,7 +767,9 @@ npm run test:cloud      8 条全通过
 | `__shipingMahjongAutoPlay(n,{speed})` | 连打 n 局，返回每局结果 |
 | `__shipingMahjongSetSpeed(v)` | 动画倍速（0 = 最快） |
 | `__shipingMahjongDropAiTask()` | 人为丢弃 AI 任务，验证心跳自愈 |
-| `__shipingMahjongForceChi()` / `ForceMelds()` / `ForceWin()` | 构造吃牌 / 四家副露 / 胡牌现场，用于视觉回归 |
+| `__shipingMahjongForceChi()` / `ForceMelds()` / `ForceWin()` / `ForceDiscardWin(from)` | 构造吃牌 / 四家副露 / 自摸胡 / 点炮胡现场，用于视觉与计分回归 |
+| `__shipingMahjongDiscardTimeline(seat)` | 牌河时间线：完整出牌顺序 + 被取走牌的下标，用于遮罩位置核对 |
+| `__shipingMahjongStrike()` / `Settlement()` / `Wall()` | 手动触发闪电 / 读银币结算（含逐家 multiples）/ 读剩余墩数 |
 | `__shipingMahjongDiceFaces()` | 骰子最终点数与掷骰记录 |
 | `__shipingMahjongShell()` | 外壳快照：当前界面、账号（银币/金条/段位/战绩）、场次、底注、结算、已打开的弹层 |
 | `__shipingMahjongRegister(a,p,nick,skip)` / `Login(a,p)` / `Logout()` | 绕过输入框注册 / 登录 / 登出 |

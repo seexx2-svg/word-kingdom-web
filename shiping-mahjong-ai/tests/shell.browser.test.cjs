@@ -209,18 +209,19 @@ test('结算：赢家实收 / 三家赔付 / 段位分，并写回账号', async
   assert.equal(s.settlement.type, 'self');
   assert.equal(s.settlement.multiplier, m, '没有庄家，倍率恒为 1');
   assert.equal(s.settlement.unit, unit, '初级场底分 2,000 × 1 倍');
-  assert.deepEqual(s.settlement.deltas, [unit * 6, -unit * 2, -unit * 2, -unit * 2], '自摸三家各付双倍');
+  assert.deepEqual(s.settlement.deltas, [unit * 9, -unit * 3, -unit * 3, -unit * 3], '自摸三家各付 3 倍');
+  assert.deepEqual(s.settlement.multiples, [0, 3, 3, 3], '逐家倍数也要是 3');
   assert.deepEqual(s.rankDelta, [7 * m, -2 * m, -2 * m, -2 * m], '赢家 +7，其余 -2');
-  assert.equal(s.account.coins, before + unit * 6, '银币必须写回账号');
+  assert.equal(s.account.coins, before + unit * 9, '银币必须写回账号');
   assert.equal(s.account.rankPoints, 7 * m);
   assert.equal(s.account.stats.wins, 1);
 
   // 结算面板结构：赢家一张、其他三家各一张、段位条一根
   assert.equal(await count(page, '#result-self .result-self'), 1);
   assert.equal(await count(page, '#result-others .result-other'), 3);
-  assert.match(await text(page, '#result-self .rs-total'), new RegExp('\\+' + (unit * 6).toLocaleString('en-US')));
+  assert.match(await text(page, '#result-self .rs-total'), new RegExp('\\+' + (unit * 9).toLocaleString('en-US')));
   const others = await page.evaluate(() => Array.from(document.querySelectorAll('#result-others .rs-total')).map((e) => e.textContent.trim()));
-  assert.deepEqual(others, [-unit * 2, -unit * 2, -unit * 2].map((v) => v.toLocaleString('en-US')));
+  assert.deepEqual(others, [-unit * 3, -unit * 3, -unit * 3].map((v) => v.toLocaleString('en-US')));
   assert.match(await text(page, '#result-rankbar'), new RegExp('\\+' + 7 * m + ' 段位分'));
   assert.ok(await count(page, '#result-hand .tile-face') >= 2, '应展示胡牌手牌');
   await page.close();
@@ -363,7 +364,7 @@ test('结算：显示赢家完整牌型（含副露），且面板不出滚动�
   }
 });
 
-test('牌河按剩余牌顺序紧凑排列、不再有固定幽灵牌；副露只有吃牌标接进来的那张', async () => {
+test('牌河：被吃/碰/杠取走的牌留在原位、盖遮罩、按出牌顺序排列；副露只有吃牌标接进来的那张', async () => {
   const page = await freshPage({ width: 1440, height: 900 });
   await page.evaluate(async () => {
     await window.__shipingMahjongRegister('shell_pile_1', 'abcd1234', '牌河测试', true);
@@ -377,21 +378,37 @@ test('牌河按剩余牌顺序紧凑排列、不再有固定幽灵牌；副露�
 
   const info = await page.evaluate(() => {
     const s = window.__shipingMahjongState();
+    const piles = Array.from(document.querySelectorAll('.discard-stack')).map((b) => {
+      const seat = Number(b.id.slice(-1));
+      const els = Array.from(b.querySelectorAll('.tile-face'));
+      const tl = window.__shipingMahjongDiscardTimeline(seat);
+      return {
+        id: b.id, seat,
+        dom: els.map((e) => String(e.dataset.tile)),
+        ghostIdx: els.map((e, i) => e.classList.contains('claimed-ghost') ? i : -1).filter((i) => i >= 0),
+        ghostVisible: els.filter((e) => e.classList.contains('claimed-ghost'))
+          .every((e) => getComputedStyle(e).display !== 'none'),
+        // 应用侧重建的完整出牌顺序 + 被取走的下标
+        full: tl.full.map(String),
+        expectedGhostIdx: tl.claimed,
+        core: (s.discards[seat] || []).map(String)
+      };
+    });
     return {
       ghosts: document.querySelectorAll('.claimed-ghost').length,
       called: document.querySelectorAll('.meld-called-tile').length,
-      piles: Array.from(document.querySelectorAll('.discard-stack')).map((b) => {
-        const seat = Number(b.id.slice(-1));
-        return {
-          id: b.id,
-          dom: Array.from(b.querySelectorAll('.tile-face')).map((e) => String(e.dataset.tile)),
-          core: (s.discards[seat] || []).map(String)
-        };
-      })
+      piles
     };
   });
-  assert.equal(info.ghosts, 0, '被吃/碰/杠取走的牌不该固定挂在牌河里');
-  info.piles.forEach((p) => assert.deepEqual(p.dom, p.core, p.id + ' 要按剩余牌的原顺序紧凑排列'));
+  assert.ok(info.ghosts >= 1, '被吃/碰/杠取走的牌仍要留在牌面上');
+  info.piles.forEach((p) => {
+    assert.deepEqual(p.dom, p.full, p.id + ' 要按完整出牌顺序排列（遮罩牌插回原位）');
+    assert.deepEqual(p.ghostIdx, p.expectedGhostIdx, p.id + ' 遮罩位置要和被取走的那一张对上');
+    assert.equal(p.ghostIdx.length, p.full.length - p.core.length, p.id + ' 遮罩牌数量要和被取走的张数一致');
+    const live = p.dom.filter((_, i) => !p.ghostIdx.includes(i));
+    assert.deepEqual(live, p.core, p.id + ' 去掉遮罩牌后就是牌河里真正剩下的牌');
+    assert.equal(p.ghostVisible, true, p.id + ' 遮罩牌不能被 display:none 藏掉');
+  });
   assert.ok(info.called >= 1, '吃牌仍要标出接进来的那张');
 
   const groups = await page.evaluate(() => window.__shipingMahjongMeldPreview());
@@ -493,6 +510,13 @@ test('手机横屏：大厅装得下，牌桌 14 张手牌完整可见', async (
   await page.click('#lobby-ai');
   await page.waitForFunction(() => window.__shipingMahjongShell().screen === 'table', null, { timeout: 8000 });
   await page.waitForFunction(() => document.querySelector('#dice-overlay').classList.contains('hidden'), null, { timeout: 20000 });
+  // 骰子收起 ≠ 摸牌渲染完成：等真正「轮到玩家且 DOM 有 14 张」再量几何，
+  // 否则快速 AI 下会随机抓到 13 张的瞬间。
+  await page.waitForFunction(() => {
+    const s = window.__shipingMahjongState();
+    return s && s.phase === 'discard' && s.current === 0 &&
+      document.querySelectorAll('#hand-tiles .tile-face').length === 14;
+  }, null, { timeout: 15000 });
 
   const table = await page.evaluate(() => {
     const tiles = Array.from(document.querySelectorAll('#hand-tiles .tile-face')).map((el) => el.getBoundingClientRect());
@@ -725,11 +749,20 @@ test('读秒：15 秒到点自动打出刚摸的那张牌', async () => {
           s.lastDraw && s.lastDraw.seat === 0) {
         window.__clockSample = { tile: s.lastDraw.tile, handLen: s.hands[0].length };
       }
+      // 双保险：observer 万一在 toast 节点重建时漏掉，轮询也能抓到这句提示
+      if (!window.__autoToasts.length && /读秒结束/.test(t.textContent)) {
+        window.__autoToasts.push(t.textContent);
+      }
       if (!window.__autoToasts.length) setTimeout(tick, 20);
     };
     tick();
   });
-  await page.waitForFunction(() => window.__autoToasts.length > 0, null, { timeout: 25000 });
+  try {
+    await page.waitForFunction(() => window.__autoToasts.some((x) => /读秒结束，自动打出刚摸的/.test(x)), null, { timeout: 35000 });
+  } catch (err) {
+    const clock = await page.evaluate(() => window.__shipingMahjongClock());
+    throw new Error('读秒自动出牌没触发，时钟状态：' + JSON.stringify(clock));
+  }
   const info = await page.evaluate(() => ({
     toasts: window.__autoToasts.slice(),
     sample: window.__clockSample,
@@ -741,6 +774,42 @@ test('读秒：15 秒到点自动打出刚摸的那张牌', async () => {
   assert.ok(info.toasts.some((t) => t.includes(info.label)),
     '自动打出的必须就是刚摸的 ' + info.label + '，实际提示：' + info.toasts.join(' | '));
   assert.deepEqual(page.__errors, [], '读秒自动出牌不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('读秒：轮到你吃碰杠时不点，超时自动过，牌局不能卡死', async () => {
+  const page = await freshPage({ width: 1440, height: 900 });
+  await page.evaluate(async () => {
+    await window.__shipingMahjongRegister('shell_clock_2', 'abcd1234', '接牌读秒', true);
+    window.__shipingMahjongSkipSeason();
+    window.__shipingMahjongSetSpeed(0);
+    window.__shipingMahjongSetTurnSeconds(1);
+    window.__shipingMahjongStartTable('novice');
+  });
+  /* 等一次「轮到我决定接牌」：这时玩家什么都不点。
+     以前读秒只管出牌阶段，人不动就永远停在 claim，牌墙不再动 —— 整局卡死。 */
+  const sawClaim = await page.waitForFunction(() => {
+    const c = window.__shipingMahjongClock();
+    return c.phase === 'claim' && window.__shipingMahjongClaimAwaiting();
+  }, null, { timeout: 40000 }).then(() => true).catch(() => false);
+  assert.ok(sawClaim, '40 秒内应该出现一次轮到我接牌的机会');
+
+  const wallBefore = await page.evaluate(() => window.__shipingMahjongState().wall.length);
+  /* 什么都不做，牌局必须自己往前走：phase 离开 claim，且牌墙继续减少 */
+  await page.waitForFunction((w) => {
+    const s = window.__shipingMahjongState();
+    return s.phase !== 'claim' || s.wall.length < w;
+  }, wallBefore, { timeout: 12000 });
+  await page.waitForTimeout(1500);
+  const after = await page.evaluate(() => {
+    const s = window.__shipingMahjongState();
+    return { phase: s.phase, wall: s.wall.length, clock: window.__shipingMahjongClock() };
+  });
+  assert.ok(after.wall < wallBefore || after.phase === 'over',
+    '接牌超时后牌局要继续走，实际 wall ' + wallBefore + ' → ' + after.wall + '，phase=' + after.phase);
+  assert.ok(!(after.clock.running && after.clock.phase === 'claim' && after.clock.left === 1),
+    '不能停在一个永远读 1 秒的接牌倒计时上');
+  assert.deepEqual(page.__errors, [], '接牌超时兜底不应报错：' + page.__errors.join(' | '));
   await page.close();
 });
 

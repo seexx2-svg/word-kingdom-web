@@ -179,6 +179,8 @@ test('胡牌结算：桌内展示完整手牌与四家明细，不溢出视口',
   const page = await openGame({ width: 1440, height: 900 });
   await page.evaluate(() => window.__shipingMahjongForceWin());
   await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
+  // 闪电劈完之前计分区是隐藏的，按钮可点性要等计分淡入后再验
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('is-striking-phase'), null, { timeout: 8000 });
   await page.waitForTimeout(200);
   const info = await page.evaluate(() => {
     const sheet = document.querySelector('#result-modal .result-sheet');
@@ -403,7 +405,7 @@ test('手牌 hover 不位移：鼠标停在下沿也能点中同一张牌', asyn
 
 /* ---------------- v0.10.0：标题裁切 / 杠分 / 闪电 / 开牌字 / 真牌墙 ---------------- */
 
-test('结算：标题「标准胡牌」必须完整可见，不能被面板裁掉', async () => {
+test('结算：标题只写「自摸」且完整可见，牌型与倍数放副标题', async () => {
   const page = await openGame({ width: 1440, height: 900 });
   await page.evaluate(() => window.__shipingMahjongForceWin());
   await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
@@ -416,6 +418,7 @@ test('结算：标题「标准胡牌」必须完整可见，不能被面板裁�
     const cs = getComputedStyle(sheet);
     return {
       text: t.textContent.trim(),
+      subtitle: (document.getElementById('result-subtitle') || {}).textContent || '',
       // 面板是 overflow:hidden，标题只要跑到面板盒子外面就会被裁
       aboveSheet: Math.round(sr.top - tr.top),
       belowSheet: Math.round(tr.bottom - sr.bottom),
@@ -424,7 +427,9 @@ test('结算：标题「标准胡牌」必须完整可见，不能被面板裁�
       h: Math.round(tr.height), w: Math.round(tr.width)
     };
   });
-  assert.equal(info.text, '标准胡牌');
+  assert.equal(info.text, '自摸', '自摸就写「自摸」，不再写牌型当标题');
+  assert.match(info.subtitle, /标准胡牌/, '牌型挪到副标题，信息不能丢');
+  assert.match(info.subtitle, /三家各 3 倍/, '自摸倍数要写清');
   assert.ok(info.aboveSheet <= 0, '标题上沿不能在面板外（那正是之前被裁掉的原因），实际 ' + info.aboveSheet);
   assert.ok(info.belowSheet <= 0, '标题下沿不能在面板外，实际 ' + info.belowSheet);
   assert.ok(info.left >= 0 && info.right >= 0, '标题左右也不能出血');
@@ -447,8 +452,8 @@ test('结算：杠过的分要记在账上（明杠 -2,000 / 暗杠 -4,000）', 
   // 1 号位暗杠（各家 -4,000）+ 2 号位明杠（各家 -2,000）：
   //   0 号 -6,000；1 号 +12,000 -2,000 = +10,000；2 号 +6,000 -4,000 = +2,000；3 号 -6,000
   assert.deepEqual(deltas.kong, [-6000, 10000, 2000, -6000], '杠分要按"明杠 2000 / 暗杠 4000 × 3 家"过账');
-  // 再叠上 0 号位自摸：三家各付 4,000，赢家收 12,000
-  assert.deepEqual(deltas.deltas, [6000, 6000, -2000, -10000], '胡牌 + 杠分才是最终盈亏');
+  // 再叠上 0 号位自摸：三家各付 6,000（3 倍底分），赢家收 18,000
+  assert.deepEqual(deltas.deltas, [12000, 4000, -4000, -12000], '胡牌 + 杠分才是最终盈亏');
   assert.equal(deltas.deltas.reduce((a, b) => a + b, 0), 0, '杠分不能让四家总和不平');
 
   await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
@@ -517,7 +522,7 @@ test('牌墙：四边的砖块数加起来等于真实剩余墩数，摸一张�
   const sum = a.visible.reduce((x, y) => x + y, 0);
   assert.equal(sum, a.stacks, '四边可见砖块之和必须等于剩余墩数：' + JSON.stringify(a.visible) + ' vs ' + a.stacks);
   assert.equal(a.stacks * 2 >= a.tiles, true, '墩数 × 2 要覆盖剩余张数');
-  assert.match(a.label, new RegExp('牌墙 ' + a.stacks + ' 墩'), '顶栏显示墩数');
+  assert.match(a.label, new RegExp('剩牌:' + a.tiles + '张'), '右上角显示真实剩余张数');
 
   // 四边都要有牌（42 墩时不可能有一边全空）
   a.visible.forEach((n, i) => assert.ok(n > 0, '第 ' + i + ' 边不该是空的'));
@@ -547,18 +552,18 @@ test('牌墙：开牌位不再压"开牌"两个字', async () => {
 
 test('牌桌皮肤：假 3D 梯形桌与立直机皮肤都能即时开关、偏好可持久化', async () => {
   const page = await openGame({ width: 1440, height: 900 });
-  /* v0.11.0 起木框与绒面画在伪元素上（clip-path 裁成梯形），
-     .table-frame / .felt 本体是透明的，所以不能再只读本体的 backgroundImage。 */
+  /* v0.12.0 起整张桌子（透视木框 + 绿绒面 + 四面立体牌墙）画在同一张 SVG 上，
+     旧的 clip-path 三层伪元素与中央平铺牌墙条全部退场。 */
   const on = await page.evaluate(() => {
     const frame = document.querySelector('.table-frame');
     const felt = document.querySelector('.felt');
     return {
       riichi: document.body.classList.contains('skin-riichi'),
       d3: document.body.classList.contains('table-3d'),
-      wood: getComputedStyle(frame, '::before').backgroundImage,
-      woodClip: getComputedStyle(frame, '::before').clipPath,
-      feltFg: getComputedStyle(felt, '::before').backgroundImage,
-      feltClip: getComputedStyle(felt, '::before').clipPath,
+      frameBg: getComputedStyle(frame).backgroundImage,
+      feltBg: getComputedStyle(felt).backgroundImage,
+      woodPseudo: getComputedStyle(frame, '::before').display,
+      stripDisplay: getComputedStyle(document.querySelector('.wall-strip')).display,
       bodyBg: getComputedStyle(document.body).backgroundImage,
       riichiChecked: document.getElementById('setting-riichi').checked,
       d3Checked: document.getElementById('setting-3d').checked
@@ -566,10 +571,10 @@ test('牌桌皮肤：假 3D 梯形桌与立直机皮肤都能即时开关、偏�
   });
   assert.equal(on.riichi, true, '立直牌面默认要开');
   assert.equal(on.d3, true, '假 3D 牌桌默认要开');
-  assert.match(on.wood, /gradient/, '梯形木框要有木纹渐变');
-  assert.match(on.woodClip, /polygon/, '木框要裁成上窄下宽的梯形');
-  assert.match(on.feltFg, /gradient/, '绿绒面要有深绿渐变');
-  assert.match(on.feltClip, /polygon/, '绒面也要裁成梯形');
+  assert.match(on.frameBg, /mahjong-table-3d\.svg/, '高仿 3D 桌（含四面立体牌墙）要铺在同一张 SVG 上');
+  assert.equal(on.feltBg, 'none', '绒面让位给 SVG，避免两层绿叠色');
+  assert.equal(on.woodPseudo, 'none', '旧的 clip-path 伪元素要退场');
+  assert.equal(on.stripDisplay, 'none', '中央那圈平铺的剩余牌墙条不再显示');
   assert.match(on.bodyBg, /mahjong-room-3d/, '房间背景要换成风景 + 地面');
   assert.ok(!/mahjong-table-bg/.test(on.bodyBg), '假 3D 模式不该再铺带桌子的整图');
   assert.equal(on.riichiChecked, true, '立直开关要同步');
@@ -632,5 +637,96 @@ test('牌桌皮肤：假 3D 梯形桌与立直机皮肤都能即时开关、偏�
   assert.equal(back.riichi, true, '立直要能开回来');
   assert.equal(back.d3, true, '3D 要能开回来');
   assert.deepEqual(page.__errors, [], '皮肤切换不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+/* ---------------- v0.12.0：高仿 3D / 剩牌 / 长闪电 / 计分节奏 ---------------- */
+
+test('v0.12：高仿 3D 桌、右上角剩牌、四家圆形头像、超长闪电', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  const info = await page.evaluate(() => {
+    const frame = document.querySelector('.table-frame');
+    const faces = Array.from(document.querySelectorAll('.pcard-face'));
+    const stat = document.getElementById('remain-stat').getBoundingClientRect();
+    return {
+      frameBg: getComputedStyle(frame).backgroundImage,
+      strips: Array.from(document.querySelectorAll('.wall-strip')).map((e) => getComputedStyle(e).display),
+      remainText: document.getElementById('wall-count').textContent.trim(),
+      remainRight: stat.left > innerWidth * 0.6,
+      clock: document.getElementById('wall-clock').textContent.trim(),
+      tileIcon: !!document.querySelector('.remain-tile'),
+      faceRadii: faces.map((e) => getComputedStyle(e).borderRadius),
+      faceBgs: faces.map((e) => getComputedStyle(e).backgroundImage)
+    };
+  });
+  assert.match(info.frameBg, /mahjong-table-3d\.svg/, '整张透视桌 + 四面立体牌墙要铺上');
+  assert.ok(info.strips.every((d) => d === 'none'), '中间那圈平铺的剩余牌墙条要撤掉');
+  assert.match(info.remainText, /^剩牌:\d+张$/, '右上角写真实剩余张数');
+  assert.equal(info.remainRight, true, '剩牌面板要在右上角');
+  assert.match(info.clock, /^\d{2}:\d{2}$/, '配一个 HH:MM 时钟');
+  assert.equal(info.tileIcon, true, '配一张小牌图');
+  assert.equal(info.faceRadii.length, 4, '四家头像都在');
+  assert.ok(info.faceRadii.every((r) => r === '50%'), '四家头像都是圆的，实际 ' + info.faceRadii.join('/'));
+  assert.ok(info.faceBgs.every((b) => /avatars\/.+\.svg/.test(b)), '四家都用动漫头像，实际 ' + info.faceBgs.join(' | '));
+
+  await page.evaluate(() => window.__shipingMahjongForceWin());
+  await page.waitForFunction(() => !!document.querySelector('.result-bolt'), null, { timeout: 6000 });
+  await page.waitForTimeout(230);
+  const bolt = await page.evaluate(() => {
+    const b = document.querySelector('.result-bolt');
+    const r = b.getBoundingClientRect();
+    return {
+      w: Math.round(r.width), h: Math.round(r.height),
+      forks: b.querySelectorAll('.bolt-forks path').length,
+      tip: !!b.querySelector('.bolt-tip circle'),
+      burst: !!document.querySelector('.result-burst'),
+      layers: b.querySelectorAll('.bolt-halo,.bolt-aura,.bolt-glow,.bolt-core').length
+    };
+  });
+  assert.ok(bolt.h >= 380, '闪电要很长，实际 ' + bolt.h);
+  assert.ok(bolt.w >= 90, '闪电要有宽度，实际 ' + bolt.w);
+  assert.equal(bolt.layers, 4, '四层发光');
+  assert.ok(bolt.forks >= 3, '要有分叉');
+  assert.equal(bolt.tip, true, '末端要有炸开的星芒');
+  assert.equal(bolt.burst, true, '要有爆闪光圈');
+  assert.deepEqual(page.__errors, [], '不应报错：' + page.__errors.join(' | '));
+  await page.close();
+});
+
+test('v0.12：点炮胡标题「胡牌」、放炮方与 2/1/1 倍数、计分延迟出现', async () => {
+  const page = await openGame({ width: 1440, height: 900 });
+  await page.evaluate(() => window.__shipingMahjongForceDiscardWin(3));
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('hidden'), null, { timeout: 8000 });
+  await page.waitForFunction(() => !!document.querySelector('.result-bolt'), null, { timeout: 5000 });
+
+  const early = await page.evaluate(() => ({
+    title: document.getElementById('result-title').textContent.trim(),
+    subtitle: document.getElementById('result-subtitle').textContent.trim(),
+    striking: document.getElementById('result-modal').classList.contains('is-striking-phase'),
+    scoreVisibility: getComputedStyle(document.querySelector('#result-modal .result-players')).visibility,
+    multiples: (window.__shipingMahjongSettlement() || {}).multiples
+  }));
+  assert.equal(early.title, '胡牌', '点炮就写「胡牌」，不是「标准胡牌」');
+  assert.match(early.subtitle, /放炮/, '副标题要写放炮方');
+  assert.match(early.subtitle, /标准胡牌/, '牌型信息不能丢');
+  assert.deepEqual(early.multiples, [0, 1, 1, 2], '放炮方 2 倍、其余两家各 1 倍');
+  assert.equal(early.striking, true, '闪电还在劈');
+  assert.equal(early.scoreVisibility, 'hidden', '计分必须等闪电劈完才出现');
+
+  await page.waitForFunction(() => !document.getElementById('result-modal').classList.contains('is-striking-phase'), null, { timeout: 8000 });
+  const late = await page.evaluate(() => ({
+    visibility: getComputedStyle(document.querySelector('#result-modal .result-players')).visibility,
+    shooterCards: document.querySelectorAll('#result-others .result-other.is-discarder').length,
+    shooterTags: Array.from(document.querySelectorAll('.rs-tag.is-shooter')).map((e) => e.textContent.trim()),
+    winnerText: document.getElementById('result-self').textContent,
+    otherText: Array.from(document.querySelectorAll('#result-others .result-other')).map((e) => e.textContent)
+  }));
+  assert.equal(late.visibility, 'visible', '闪电结束后计分淡入');
+  assert.equal(late.shooterCards, 1, '放炮方卡片要有醒目标记');
+  assert.deepEqual(late.shooterTags, ['放炮'], '放炮方挂「放炮」标');
+  assert.match(late.winnerText, /放炮方/, '赢家账上要写明谁放的炮');
+  assert.ok(late.otherText.some((t) => /2 倍/.test(t)), '放炮方付 2 倍');
+  assert.equal(late.otherText.filter((t) => /1 倍/.test(t)).length, 2, '另外两家各 1 倍');
+  assert.deepEqual(page.__errors, [], '不应报错：' + page.__errors.join(' | '));
   await page.close();
 });

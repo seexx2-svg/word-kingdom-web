@@ -68,7 +68,7 @@
   let speedScale = 1;           // 压力测试时可降到 0
   let autoPlay = false;
   let heartbeat = null;
-  let turnClock = null, turnLeft = 15, turnSeconds = TURN_SECONDS;
+  let turnClock = null, turnLeft = 15, turnSeconds = TURN_SECONDS, turnClockSeconds = null, turnKind = null;
   let decisionAt = 0;
   let retryCount = 0;
   let renderSig = '';
@@ -465,13 +465,23 @@
     });
   }
 
+  /** 右上角小面板里的时钟（参考截图是 23:21 那种 HH:MM），每分钟走一格 */
+  function paintWallClock() {
+    const el = $('wall-clock');
+    if (!el) return;
+    const d = new Date();
+    el.textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
   function render(force) {
     if (!state) return;
     const sig = computeSig();
     if (!force && sig === renderSig) { renderSeatStatus(); return; }
     renderSig = sig;
-    $('wall-count').textContent = '牌墙 ' + Math.floor((state.wall.length + 1) / 2) + ' 墩';
-    $('wall-count').title = '剩 ' + state.wall.length + ' 张未摸';
+    // 中间那圈平铺的牌墙条已按需求撤掉，剩余张数统一在右上角显示
+    $('wall-count').textContent = '剩牌:' + state.wall.length + '张';
+    $('wall-count').title = '牌墙还剩 ' + Math.floor((state.wall.length + 1) / 2) + ' 墩';
+    paintWallClock();
     $('hand-count').textContent = state.hands[0].length + ' 张';
     // 石屏麻将没有庄家：骰子只决定从谁那里起手，不翻倍、不连庄
     $('dealer-label').textContent = `${NAMES[state.dealer]} 起手 · ${state.wallBreak.side}墙第${state.wallBreak.stack}墩`;
@@ -565,26 +575,76 @@
       box.appendChild(group);
     });
   }
-  /** 牌河只画「还留在河里的牌」。
-   *  被吃 / 碰 / 明杠取走的那张，内核 claimDiscard 已经 splice 掉了；
-   *  旧版会把它们补回来挂成带遮罩的固定幽灵牌，看着像钉在那儿不动。
-   *  现在不做补回：剩下的牌按原本的打出顺序自然往前排，不留空位。 */
+  /** 从事件流还原某一家「打出过的所有牌」，并标出哪几张被吃 / 碰 / 明杠取走。
+   *  内核 claimDiscard 会把取走的那张从 discards 里 splice 掉，但事件流里
+   *  discard 事件和 claim(from=本家) 事件都还在，所以能精确定位到「第几张」，
+   *  把遮罩牌按原来的出牌顺序插回原位，而不是像旧版那样钉在牌河末尾。 */
+  function discardTimeline(seat) {
+    const full = [];
+    const claimed = new Set();
+    const last = {};
+    (state.events || []).forEach((e) => {
+      if (e.type === 'discard' && e.seat === seat) {
+        last[seat] = full.length;
+        full.push(e.tile);
+        return;
+      }
+      if (e.from === seat && (
+        e.type === 'chi' || e.type === 'peng' || (e.type === 'gang' && e.kind === 'exposed')
+      )) {
+        if (Number.isInteger(last[seat]) && !claimed.has(last[seat])) {
+          claimed.add(last[seat]);
+        } else {
+          // 调试钩子 / 重放里可能没有配对的 discard 事件，直接补一张被取走的牌
+          claimed.add(full.length);
+          full.push(e.tile);
+        }
+        last[seat] = null;   // 同一次弃牌只处理一次
+      }
+    });
+    return { full, claimed };
+  }
+  /** 谁把这张牌拿走了：按副露里的 from / calledTile 反查，写进 title */
+  function claimedByLabel(seat, tile) {
+    for (let p = 0; p < 4; p++) {
+      if (p === seat) continue;
+      const m = (state.melds[p] || []).find((x) => !x.concealed && !x.added
+        && x.from === seat && x.calledTile === tile);
+      if (m) return SEATS[p] + ' ' + NAMES[p] + ({ chi: ' 吃', peng: ' 碰', gang: ' 杠' }[m.type] || ' 接') + '走';
+    }
+    return '已被吃 / 碰 / 杠取走';
+  }
+  /** 牌河：被吃 / 碰 / 明杠取走的牌仍留在牌面上、按出牌顺序排列，只是盖一层遮罩。 */
   function renderDiscards(s) {
     const box = $('discards-' + s);
     if (!box) return;
-    const pile = state.discards[s];
-    const sig = pile.join(',');
-    box.classList.toggle('is-dense', pile.length > 18);
+    const live = state.discards[s];
+    const tl = discardTimeline(s);
+    // 事件流必须和牌河对得上才敢插回遮罩牌；对不上就只画还在河里的牌，避免错位
+    let aligned = tl.full.length - tl.claimed.size === live.length;
+    if (aligned) {
+      let li = 0;
+      for (let i = 0; i < tl.full.length; i++) {
+        if (tl.claimed.has(i)) continue;
+        if (tl.full[i] !== live[li++]) { aligned = false; break; }
+      }
+    }
+    const rows = aligned ? tl.full : live;
+    const ghosts = aligned ? tl.claimed : new Set();
+    const sig = rows.join(',') + '|' + Array.from(ghosts).join(',');
+    box.classList.toggle('is-dense', rows.length > 18);
     if (box.dataset.sig === sig) {
-      // 只在牌没变的情况下更新最新一张的高亮，避免重排造成闪烁
-      Array.from(box.children).forEach((el, i) => el.classList.toggle('latest-discard', i === pile.length - 1));
+      Array.from(box.children).forEach((el, i) => el.classList.toggle('latest-discard', !ghosts.has(i) && i === rows.length - 1));
       return;
     }
     box.dataset.sig = sig;
     box.innerHTML = '';
-    pile.forEach((id, index) => {
-      const el = tileEl(id, index === pile.length - 1 ? 'latest-discard' : '');
-      if (index === pile.length - 1) el.title = SEATS[s] + ' ' + NAMES[s] + ' 打出 ' + C.tileLabel(id);
+    rows.forEach((id, index) => {
+      const isGhost = ghosts.has(index);
+      const isLatest = !isGhost && index === rows.length - 1;
+      const el = tileEl(id, (isGhost ? 'claimed-ghost' : '') + (isLatest ? ' latest-discard' : ''));
+      if (isGhost) el.title = C.tileLabel(id) + ' · ' + claimedByLabel(s, id);
+      else if (isLatest) el.title = SEATS[s] + ' ' + NAMES[s] + ' 打出 ' + C.tileLabel(id);
       box.appendChild(el);
     });
   }
@@ -639,6 +699,8 @@
     if (hudBet) hudBet.textContent = '底注:' + A.fmtNum(hall.baseBet);
   }
   const AI_RANKS = ['进士', '举人', '秀才'];
+  /** 四家统一用同一套圆形古风头像；座位 → 素材名，和 index.html 里的 .avatar-* 对应 */
+  const SEAT_AVATAR = ['you', 'north', 'west', 'east'];
   function paintSeatRanks() {
     for (let i = 1; i < 4; i++) {
       const el = $('rank-' + i);
@@ -687,30 +749,63 @@
     toast('读秒结束，自动打出刚摸的 ' + C.tileLabel(hand[idx]));
     humanDiscard(idx);
   }
+  /** 接牌阶段超时的兜底：自动「过」。
+   *  不这么做的话，只要玩家一直不点，牌局就停在 claim 上再也动不了。 */
+  function autoPassClaim(tries) {
+    if (!state || state.phase !== C.PHASES.CLAIM) return;
+    const a = C.awaiting(state);
+    if (!a || a.seat !== 0) return;
+    if (busy) {
+      if (tries > 0) setTimeout(() => autoPassClaim(tries - 1), 180);
+      return;
+    }
+    toast('读秒结束，自动过');
+    humanPass();
+  }
+  /** 读秒同样要管「接牌决策」。
+   *  只倒计时出牌的话，只要玩家不点「过」，整局会永远停在 claim 阶段——
+   *  牌墙不动、谁也打不了牌，就是玩家反馈的「卡死」。
+   *  这里统一判断「现在是不是等我做决定」，超时按决策类型执行兜底动作。 */
+  function myTurnKind() {
+    if (!state) return null;
+    if (state.phase === C.PHASES.DISCARD) return state.current === 0 ? 'discard' : null;
+    if (state.phase === C.PHASES.CLAIM) {
+      const a = C.awaiting(state);
+      if (a && a.seat === 0 && a.kind === 'claim') return 'claim';
+    }
+    return null;
+  }
   function refreshTurnClock() {
     const box = $('turn-clock');
     if (!box) return;
-    const mine = state && state.phase === C.PHASES.DISCARD && state.current === 0;
-    if (!mine) {
+    const kind = autoPlay ? null : myTurnKind();
+    if (!kind) {
       if (turnClock) { clearInterval(turnClock); turnClock = null; }
+      turnClockSeconds = null;
+      turnKind = null;
       box.textContent = '–';
       box.classList.remove('urgent');
       return;
     }
-    if (turnClock) return;
+    // 计时器已在跑但读秒长度 / 决策类型变了（改设置 / 换阶段），立刻按新值重启
+    if (turnClock && turnClockSeconds === turnSeconds && turnKind === kind) return;
+    if (turnClock) { clearInterval(turnClock); turnClock = null; }
+    turnClockSeconds = turnSeconds;
+    turnKind = kind;
     turnLeft = turnSeconds;
     box.textContent = String(turnSeconds).padStart(2, '0');
     box.classList.remove('urgent');
     turnClock = setInterval(() => {
-      if (!state || state.phase !== C.PHASES.DISCARD || state.current !== 0) {
-        clearInterval(turnClock); turnClock = null; return;
+      if ((autoPlay ? null : myTurnKind()) !== kind) {
+        clearInterval(turnClock); turnClock = null; turnKind = null; return;
       }
       turnLeft = Math.max(0, turnLeft - 1);
       box.textContent = String(turnLeft).padStart(2, '0');
       box.classList.toggle('urgent', turnLeft <= 5);
       if (turnLeft === 0) {
-        clearInterval(turnClock); turnClock = null;
-        autoDiscardDrawn(10);
+        clearInterval(turnClock); turnClock = null; turnKind = null;
+        if (kind === 'discard') autoDiscardDrawn(30);
+        else autoPassClaim(30);
       }
     }, 1000);
   }
@@ -982,7 +1077,12 @@
     if (!state || state.phase === C.PHASES.OVER) return;
     const a = C.awaiting(state);
     if (!a) return;
-    if (a.seat === 0 && !autoPlay) return;
+    if (a.seat === 0 && !autoPlay) {
+      // 看门狗：轮到真人时保证读秒计时器活着。render 竞态可能把它清掉，
+      // 而局面静止时不会再有 render 重启它 —— 那正是「15 秒到了不打牌」的根因。
+      refreshTurnClock();
+      return;
+    }
     if (isRemoteHuman(a.seat)) return;   // 等真人，不算"任务缺失"
     const healthy = aiTask && aiTask.epoch === epoch;
     const age = Date.now() - decisionAt;
@@ -1065,11 +1165,21 @@
       else logLine('action', '战绩已上传 第' + res.round.id + '条');
     }).catch((err) => logLine('action', '战绩上传异常：' + ((err && err.message) || err)));
   }
+  /** 主标题严格只写「自摸」/「胡牌」；牌型、放炮方放副标题，不再混在标题里 */
   function resultTitle(r) {
     if (!r) return '本局结束';
     if (r.type === 'draw') return '荒牌';
     if (r.type === 'abort') return '本局中止';
-    return r.winningType || (r.type === 'self' ? '自摸' : '平胡');
+    return r.type === 'self' ? '自摸' : '胡牌';
+  }
+  function resultSubtitle(r) {
+    if (!r) return '';
+    const kind = r.winningType || '';
+    if (r.type === 'draw') return kind ? '本局荒牌 · ' + kind : '本局荒牌';
+    if (r.type === 'abort') return '本局中止';
+    if (r.type === 'self') return [kind, '三家各 3 倍'].filter(Boolean).join(' · ');
+    const from = Number.isInteger(r.from) ? (NAMES[r.from] + ' · ' + SEATS[r.from]) : '';
+    return [kind, from ? '放炮：' + from : '', '放炮方 2 倍 · 其余 1 倍'].filter(Boolean).join(' · ');
   }
   function resultCard(seat, winner, r) {
     const isSelf = seat === 0;
@@ -1083,8 +1193,8 @@
     const head = document.createElement('div');
     head.className = 'rs-head';
     const face = document.createElement('span');
-    face.className = 'rs-face';
-    face.textContent = (name || '牌').slice(0, 1);
+    face.className = 'rs-face avatar-' + SEAT_AVATAR[seat];
+    face.setAttribute('aria-label', name);
     const nameEl = document.createElement('span');
     nameEl.className = 'rs-name';
     nameEl.textContent = name;
@@ -1097,6 +1207,14 @@
       me.className = 'rs-tag';
       me.textContent = '自己';
       head.appendChild(me);
+    }
+    // 谁放的炮一眼可见：点炮方卡片上挂个醒目的「放炮」标
+    if (r && r.type === 'discard' && seat === r.from) {
+      card.classList.add('is-discarder');
+      const shooter = document.createElement('span');
+      shooter.className = 'rs-tag is-shooter';
+      shooter.textContent = '放炮';
+      head.appendChild(shooter);
     }
     card.appendChild(head);
 
@@ -1123,10 +1241,15 @@
     const mine = settlement && settlement.kongs ? settlement.kongs.filter((k) => k.seat === seat) : [];
     if (settlement && settlement.multiplier) {
       if (isWinner) {
-        addLine(resultTitle(r), '1 倍');
+        addLine(resultTitle(r), settlement.type === 'self' ? '三家各 3 倍' : '放炮方 2 倍');
         addLine('底注', A.fmtNum(settlement.unit));
+        if (r && r.type === 'discard' && Number.isInteger(r.from)) {
+          addLine('放炮方', NAMES[r.from] + ' · ' + SEATS[r.from]);
+        }
       } else {
-        addLine(settlement.reasons[seat] || '输', settlement.multiplier + ' 倍');
+        // 每家实际付几倍：点炮方 2 倍、其余 1 倍；自摸三家都是 3 倍
+        const mult = (settlement.multiples && settlement.multiples[seat]) || settlement.multiplier;
+        addLine(settlement.reasons[seat] || '输', mult + ' 倍');
       }
     }
     // 杠分单独列出来：谁开的杠、开的哪种、收了多少，一眼对得上
@@ -1192,40 +1315,64 @@
     sheet.classList.toggle('is-scroll', sheet.scrollHeight > sheet.clientHeight + 2);
   }
 
-  /** 闪电画在结算层里（按坐标定位），不放在牌里面——.result-hand-row 是 overflow:hidden，
-   *  贴在牌上的闪电会被裁掉半截，那还不如不做。 */
-  function strikeWinningTile() {
+  /** 长闪电：从画面上方一路劈到胡的那张牌上，四层发光 + 三条分叉 + 末端炸开的星芒。
+   *  闪电按坐标挂在结算层上（.result-hand-row 是 overflow:hidden，塞进牌里会被裁半截）。
+   *  播完才把计分区揭开，所以「先劈、后出分」是同一个节奏。 */
+  // 细长曲折的 Z 字主闪：四段折返，横向摆幅大，拉伸后仍看得出闪电形状
+  const BOLT_MAIN = 'M158 0 L58 156 L120 156 L44 308 L108 308 L36 464 L96 464 L58 640';
+  function strikeWinningTile(done) {
+    const finish = () => { if (typeof done === 'function') done(); };
     const modal = $('result-modal');
     const row = $('result-hand');
-    if (!modal || !row || modal.classList.contains('hidden')) return false;
+    if (!modal || !row || modal.classList.contains('hidden')) { finish(); return false; }
     const tile = row.querySelector('.tile-face.winning-tile');
-    if (!tile) return false;
+    if (!tile) { finish(); return false; }
     const tr = tile.getBoundingClientRect();
     const mr = modal.getBoundingClientRect();
-    if (!tr.width) return false;
+    if (!tr.width) { finish(); return false; }
+    const reduced = reducedMotion();
     const bolt = document.createElement('span');
-    bolt.className = 'result-bolt' + (reducedMotion() ? ' is-still' : '');
-    // 闪电用"描边当光晕"，不用 blur 滤镜——SVG 里的 blur 在非等比拉伸时会露出一块方框
-    bolt.innerHTML = '<svg viewBox="0 0 80 200" preserveAspectRatio="none" aria-hidden="true">'
-      + '<path class="bolt-halo" d="M50 4 L14 96 L36 96 L24 196 L68 76 L46 76 L60 4 Z"/>'
-      + '<path class="bolt-glow" d="M50 4 L14 96 L36 96 L24 196 L68 76 L46 76 L60 4 Z"/>'
-      + '<path class="bolt-core" d="M50 4 L14 96 L36 96 L24 196 L68 76 L46 76 L60 4 Z"/>'
-      + '<path class="bolt-fork" d="M30 74 L10 104"/><path class="bolt-fork" d="M47 122 L64 152"/>'
+    bolt.className = 'result-bolt' + (reduced ? ' is-still' : '');
+    bolt.innerHTML = '<svg viewBox="0 0 240 640" preserveAspectRatio="none" aria-hidden="true">'
+      + '<path class="bolt-halo" d="' + BOLT_MAIN + '"/>'
+      + '<path class="bolt-aura" d="' + BOLT_MAIN + '"/>'
+      + '<path class="bolt-glow" d="' + BOLT_MAIN + '"/>'
+      + '<path class="bolt-core" d="' + BOLT_MAIN + '"/>'
+      + '<g class="bolt-forks">'
+      + '<path d="M120 156 L196 224 L176 278"/>'
+      + '<path d="M44 308 L10 368 L34 402"/>'
+      + '<path d="M108 308 L188 360 L168 414"/>'
+      + '<path d="M36 464 L4 520"/>'
+      + '</g>'
+      + '<g class="bolt-sparks">'
+      + '<circle cx="196" cy="224" r="5"/><circle cx="10" cy="368" r="4"/>'
+      + '<circle cx="188" cy="360" r="4"/><circle cx="4" cy="520" r="3"/>'
+      + '</g>'
+      + '<g class="bolt-tip">'
+      + '<path d="M58 640 L14 598 M58 640 L102 598 M58 640 L2 640 M58 640 L114 640 M58 640 L20 682 M58 640 L96 682"/>'
+      + '<circle cx="58" cy="640" r="11"/>'
+      + '</g>'
       + '</svg>';
     bolt.style.left = Math.round(tr.left - mr.left + tr.width / 2) + 'px';
     bolt.style.top = Math.round(tr.top - mr.top + Math.round(tr.height * 0.35)) + 'px';
     const flash = document.createElement('span');
-    flash.className = 'result-flash' + (reducedMotion() ? ' is-still' : '');
+    flash.className = 'result-flash' + (reduced ? ' is-still' : '');
+    const burst = document.createElement('span');
+    burst.className = 'result-burst' + (reduced ? ' is-still' : '');
+    burst.style.left = bolt.style.left;
+    burst.style.top = Math.round(tr.top - mr.top + tr.height / 2) + 'px';
     modal.appendChild(flash);
+    modal.appendChild(burst);
     modal.appendChild(bolt);
     modal.classList.add('is-striking');
     tile.classList.add('is-struck');
     playSound('thunder');
     window.setTimeout(() => {
-      bolt.remove(); flash.remove();
+      bolt.remove(); flash.remove(); burst.remove();
       modal.classList.remove('is-striking');
       tile.classList.remove('is-struck');
-    }, 1500);
+      finish();
+    }, reduced ? 120 : 1500);
     return true;
   }
 
@@ -1233,6 +1380,8 @@
     if (!state || !state.result) return;
     const r = state.result;
     $('result-title').textContent = resultTitle(r);
+    const subtitle = $('result-subtitle');
+    if (subtitle) subtitle.textContent = resultSubtitle(r);
     const winner = Number.isInteger(r.seat) ? r.seat : -1;
 
     const handRow = $('result-hand');
@@ -1278,16 +1427,25 @@
       bar.append(label, text, mini, d);
     }
 
-    $('result-modal').classList.remove('hidden');
+    const modal = $('result-modal');
+    const hasWin = winner >= 0;
+    // 胡牌时先只亮「标题 + 完整牌型」，计分区等长闪电劈完再淡入
+    modal.classList.toggle('is-striking-phase', hasWin);
+    modal.classList.remove('hidden');
     document.querySelector('.table-frame').classList.add('round-over');
     requestAnimationFrame(() => {
       fitResult();
+      if (!hasWin) return;
       // 等面板落位、牌宽算好再劈，否则闪电会打在旧坐标上
-      window.setTimeout(() => strikeWinningTile(), reducedMotion() ? 0 : 220);
+      window.setTimeout(() => strikeWinningTile(() => {
+        modal.classList.remove('is-striking-phase');
+      }), reducedMotion() ? 0 : 160);
     });
   }
   function hideResult() {
-    $('result-modal').classList.add('hidden');
+    const modal = $('result-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('is-striking-phase', 'is-striking');
     const frame = document.querySelector('.table-frame');
     if (frame) frame.classList.remove('round-over');
   }
@@ -2128,7 +2286,11 @@
   function paintReadySeats() {
     for (let seat = 0; seat < 4; seat++) {
       const face = $('ready-face-' + seat);
-      if (face) face.textContent = (NAMES[seat] || '牌').slice(0, 1);
+      if (face) {
+        face.className = 'ready-face avatar-' + SEAT_AVATAR[seat];
+        face.textContent = '';
+        face.setAttribute('aria-label', NAMES[seat] || '玩家');
+      }
       const name = $('ready-name-' + seat);
       if (name) name.textContent = NAMES[seat];
       const rank = $('ready-rank-' + seat);
@@ -2145,11 +2307,14 @@
     if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
     const el = $('table-ready');
     if (el) el.classList.add('hidden');
+    document.body.classList.remove('table-ready-on');
   }
   function showTableReady() {
     const el = $('table-ready');
     if (!el) return;
     paintReadySeats();
+    // 准备层的「换桌 / 准备」正好压在中央读秒上，这一层在时先让读秒退场
+    document.body.classList.add('table-ready-on');
     el.classList.remove('hidden');
     if (readyTimer) clearTimeout(readyTimer);
     readyTimer = setTimeout(hideTableReady, 2800);
@@ -2584,7 +2749,7 @@
       profile: account ? { id: account.id, name: account.nick, coins: account.coins, gold: account.gold, rankPoints: account.rankPoints, rank: rankInfo().name, stats: Object.assign({}, account.stats) } : null,
       account: account ? { id: account.id, nick: account.nick, coins: account.coins, gold: account.gold, rankPoints: account.rankPoints, rank: rankInfo().name, season: A.SEASON.id, hall: hallId } : null,
       screen: screenId,
-      settlement: settlement ? { deltas: settlement.deltas.slice(), multiplier: settlement.multiplier, unit: settlement.unit, busted: settlement.busted.slice(), reasons: settlement.reasons.slice() } : null,
+      settlement: settlement ? { deltas: settlement.deltas.slice(), multiplier: settlement.multiplier, unit: settlement.unit, multiples: (settlement.multiples || []).slice(), busted: settlement.busted.slice(), reasons: settlement.reasons.slice() } : null,
       rankDelta: rankDelta ? rankDelta.slice() : null,
       logs: LOGS.slice(-40)
     };
@@ -2699,7 +2864,7 @@
       variantId,
       variants: C.availableVariants(),
       season: A.SEASON.id,
-      settlement: settlement ? { type: settlement.type, unit: settlement.unit, multiplier: settlement.multiplier, deltas: settlement.deltas.slice(), busted: settlement.busted.slice() } : null,
+      settlement: settlement ? { type: settlement.type, unit: settlement.unit, multiplier: settlement.multiplier, deltas: settlement.deltas.slice(), multiples: (settlement.multiples || []).slice(), busted: settlement.busted.slice() } : null,
       rankDelta: rankDelta ? rankDelta.slice() : null,
       layers: ['login-modal', 'signin-modal', 'back-modal', 'reward-modal', 'rules-modal', 'result-modal']
         .filter((id) => { const el = $(id); return el && !el.classList.contains('hidden'); })
@@ -2931,6 +3096,44 @@
       showResult();
       return state.result;
     };
+    /** 造一次「点炮胡」结算，用来验证胡牌标题、放炮方与 2/1/1 倍数 */
+    window.__shipingMahjongForceDiscardWin = (from) => {
+      if (!state) return null;
+      stopAi();
+      const shooter = Number.isInteger(from) ? from : 3;
+      state.melds[0] = [
+        { type: 'chi', tiles: [4, 5, 6], from: 1, calledFrom: 1, calledTile: 5, calledTileIndex: 1 }
+      ];
+      const hand = [0, 1, 2, 9, 10, 11, 18, 19, 20, 27, 27];
+      state.hands[0] = hand.slice();
+      state.phase = C.PHASES.OVER;
+      state.winner = { seat: 0, type: 'discard', from: shooter };
+      state.scores = [4, -1, -1, -2];
+      state.result = {
+        type: 'discard', seat: 0, from: shooter, title: '点炮胡',
+        winType: '点炮', winningTile: 27, winningHand: hand.concat([27]).sort((a, b) => a - b),
+        winningType: '标准胡牌', melds: state.melds[0], roundScores: state.scores.slice()
+      };
+      settledState = null;
+      render(true);
+      settleRound();
+      showResult();
+      return state.result;
+    };
+    /** 读秒诊断：计时器是否活着、还剩几秒、当前轮到谁 */
+    window.__shipingMahjongClock = () => ({
+      running: !!turnClock, left: turnLeft, seconds: turnSeconds, kind: turnKind,
+      phase: state ? state.phase : null, current: state ? state.current : null,
+      wall: state ? state.wall.length : null, busy
+    });
+    /** 接牌阶段是不是在等我做决定 */
+    window.__shipingMahjongClaimAwaiting = () => myTurnKind() === 'claim';
+    /** 牌河时间线：完整出牌顺序 + 被取走牌的下标，供遮罩回归用例核对 */
+    window.__shipingMahjongDiscardTimeline = (seat) => {
+      if (!state) return null;
+      const tl = discardTimeline(seat);
+      return { full: tl.full.slice(), claimed: Array.from(tl.claimed), live: state.discards[seat].slice() };
+    };
     /** 手动触发一次闪电，供视觉回归与用例使用 */
     window.__shipingMahjongStrike = () => strikeWinningTile();
     window.__shipingMahjongState = () => state;
@@ -3018,6 +3221,8 @@
     syncSoundButton();
     applySkin(loadSkinSetting());
     apply3d(load3dSetting());
+    paintWallClock();
+    setInterval(paintWallClock, 30000);
     if (Sfx) Sfx.setEnabled(soundEnabled);
     bind();
     bindShell();

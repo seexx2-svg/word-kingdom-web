@@ -2772,7 +2772,8 @@ body.table-3d .table-tablemark{opacity:.11!important}
 .table-screen .hand-panel .hand-tiles .tile-face.drawn-tile{
   margin-left:clamp(8px,1.1vw,16px)!important;
 }
-/* 牌河只画还留在河里的牌；万一旧渲染残留幽灵牌也不让它占位 */
+/* v0.11.0 曾把幽灵牌藏掉；v0.12.0 用户要求「留在牌面、加遮罩、按顺序」，
+   第 21.3 节已把这条覆盖成 display:block!important。这里保留历史痕迹不再生效。 */
 .discard-stack .tile-face.claimed-ghost{display:none!important}
 .meld-row .meld-chi .tile-face.meld-called-tile{
   outline:2px solid #ffcf63!important;outline-offset:-2px;
@@ -2934,4 +2935,261 @@ body.table-3d .table-tablemark{opacity:.11!important}
 }
 @media (prefers-reduced-motion:reduce){
   .table-screen .hand-panel .action-bar .action-button{transition:none}
+}
+
+/* =====================================================================
+   21. v0.12.0：高仿 3D 牌桌 / 剩牌右上角 / 牌河遮罩 / 长闪电 / 头像
+   ===================================================================== */
+
+/* ---------- 21.1 高仿 3D：整张桌子和四面立体牌墙画在一张 SVG 里 ----------
+   上一版用 clip-path 画梯形，但四条牌墙仍是平铺在绒面中央的绿色直条，
+   完全没有厚度和透视，所以看着不像 3D。现在改为一张对齐好的 SVG：
+   风景 / 地砖 / 透视木框 / 金边 / 绿绒面 / 四面有厚度的斜牌墙。 */
+body.table-3d .table-frame{
+  background-color:transparent!important;
+  background-image:url("assets/mahjong-table-3d.svg")!important;
+  background-repeat:no-repeat!important;
+  background-position:center center!important;
+  background-size:100% 100%!important;
+}
+/* 旧的三层 clip-path 伪元素全部退场，绒面让位给 SVG */
+body.table-3d .table-frame:before,
+body.table-3d .table-frame:after,
+body.table-3d .felt:before{display:none!important;content:none!important}
+body.table-3d .felt{
+  background:transparent!important;background-image:none!important;
+  box-shadow:none!important;border-radius:0!important;
+}
+body.table-3d .felt-sheen{opacity:.05}
+body.table-3d .table-tablemark{opacity:.13!important}
+/* 中央那圈平铺的剩余牌墙条撤掉：数字只在右上角看 */
+.table-screen .table-frame .wall-strip,
+.table-screen .center-table .wall-strip{display:none!important}
+
+/* ---------- 21.2 右上角「剩牌」小面板 ---------- */
+.top-actions .remain-stat{
+  order:9;display:flex;align-items:center;gap:7px;
+  padding:3px 9px 3px 4px;border-radius:9px;
+  background:linear-gradient(180deg,#173528f2,#061a12f5)!important;
+  border:1px solid #d9bd7d88!important;
+  box-shadow:0 3px 10px #0008,inset 0 1px 0 #ffffff18;
+}
+.remain-tile{
+  width:22px;height:30px;flex:0 0 22px;border-radius:3px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:linear-gradient(180deg,#fffdf3,#dcd4bb);
+  border:1px solid #9a8c68;box-shadow:0 1px 3px #0009,inset 0 1px 0 #fff;
+  color:#b83226;font-family:"STKaiti","KaiTi",serif;font-weight:900;
+  line-height:1.02;font-size:10px;
+}
+.remain-tile b{font-weight:900;font-size:10px}
+.remain-clock{
+  font-size:10px;letter-spacing:.06em;color:#e9dcbb;
+  padding:2px 5px;border-radius:4px;background:#00000066;
+}
+.remain-num{font-size:11px;font-weight:800;color:#fff0c7;white-space:nowrap;letter-spacing:.02em}
+.lamp{display:none}
+
+/* ---------- 21.3 牌河：被吃 / 碰 / 杠取走的牌留在原位、只盖遮罩 ---------- */
+.discard-stack .tile-face.claimed-ghost{display:block!important}
+.tile-face.claimed-ghost{
+  opacity:.68!important;
+  filter:grayscale(.55) brightness(.6)!important;
+  outline:2px dashed rgba(255,214,130,.8)!important;
+  outline-offset:-2px;
+  animation:none!important;box-shadow:0 1px 3px #00150f99!important;
+}
+.tile-face.claimed-ghost::after{
+  content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:
+    repeating-linear-gradient(135deg,rgba(0,20,13,.55) 0 3px,rgba(0,20,13,.16) 3px 6px),
+    linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.55))!important;
+  box-shadow:inset 0 0 0 1px rgba(255,214,130,.42)!important;
+}
+
+/* ---------- 21.4 四家头像：圆形古风人物 + 双层金边 ---------- */
+.table-screen .pcard-face,
+.table-ready .ready-face,
+#result-modal .rs-face,
+.player-avatar{
+  border-radius:50%!important;
+  overflow:hidden;
+  color:transparent!important;font-size:0!important;text-indent:-9999px;
+  border:2px solid #ffe0a0!important;
+  box-shadow:0 0 0 2px #7a4b22,0 3px 9px #000b,0 0 14px #ffd98a55!important;
+  background-color:#123a2b!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+}
+/* 放在最后，压过第 2/7 节里那些简写 background 与渐变覆盖 */
+.avatar-you{background-image:url("assets/avatars/you.svg")!important}
+.avatar-north{background-image:url("assets/avatars/north.svg")!important}
+.avatar-west{background-image:url("assets/avatars/west.svg")!important}
+.avatar-east{background-image:url("assets/avatars/east.svg")!important}
+/* 大厅左上角头像也统一成同一张 */
+#home-avatar.avatar-you,#hall-avatar.avatar-you{background-image:url("assets/avatars/you.svg")!important}
+
+/* ---------- 21.5 结算：标题只写自摸/胡牌，放炮方与倍数写清 ---------- */
+.result-sheet-sub{
+  margin:2px auto 6px;max-width:92%;text-align:center;
+  font-size:11px;line-height:1.45;letter-spacing:.03em;color:#e6d2a4;
+  text-shadow:0 1px 2px #000a;
+}
+.result-sheet-sub:empty{display:none}
+.rs-tag.is-shooter{
+  background:linear-gradient(180deg,#ff9a5c,#d34a1b)!important;
+  color:#fff8ea!important;font-weight:900;box-shadow:0 0 8px #ff7a3c88;
+}
+.result-other.is-discarder{
+  border-color:#ff9a5c99!important;
+  box-shadow:0 0 0 1px #ff8a4d33,0 4px 14px #0007!important;
+}
+/* 计分延迟：闪电阶段只亮标题与完整牌型，分牌过一会儿才淡入 */
+#result-modal .result-players,
+#result-modal .result-rankbar,
+#result-modal .result-actions{transition:opacity .42s ease,transform .42s ease}
+#result-modal.is-striking-phase .result-players,
+#result-modal.is-striking-phase .result-rankbar,
+#result-modal.is-striking-phase .result-actions{
+  opacity:0;visibility:hidden;pointer-events:none;
+}
+#result-modal.is-striking-phase .result-players{transform:translateY(12px)}
+
+/* ---------- 21.6 长闪电：四层发光 + 分叉 + 末端爆闪 ----------
+   从画面上方一路劈到胡的那张牌，比 v0.10.0 那道 56×150 的小闪电长得多。 */
+.result-bolt{
+  width:132px!important;height:min(62vh,540px)!important;
+  transform:translate(-50%,-100%);transform-origin:50% 100%;
+  filter:drop-shadow(0 0 8px #a58bff) drop-shadow(0 0 24px #3ab6ff) drop-shadow(0 0 48px #1a6bff)!important;
+  animation:boltStrike 1.5s cubic-bezier(.2,.7,.3,1) both!important;
+}
+.result-bolt svg{width:100%;height:100%;display:block;overflow:visible}
+.result-bolt .bolt-halo{fill:none;stroke:#8b6bff;stroke-width:22;stroke-linejoin:round;stroke-linecap:round;opacity:.28}
+.result-bolt .bolt-aura{fill:none;stroke:#35b9ff;stroke-width:12;stroke-linejoin:round;stroke-linecap:round;opacity:.6}
+.result-bolt .bolt-glow{fill:none;stroke:#c8f2ff;stroke-width:5.5;stroke-linejoin:round;stroke-linecap:round;opacity:.95}
+.result-bolt .bolt-core{fill:none;stroke:#ffffff;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 0 4px #ffffff)}
+.result-bolt .bolt-forks path{
+  fill:none;stroke:#dff6ff;stroke-width:3.6;stroke-linecap:round;stroke-linejoin:round;
+  opacity:.9;filter:drop-shadow(0 0 5px #6fc9ff);
+}
+.result-bolt .bolt-sparks circle{fill:#ffffff;filter:drop-shadow(0 0 6px #a9e4ff);opacity:.9}
+.result-bolt .bolt-tip path{stroke:#ffffff;stroke-width:4;stroke-linecap:round;opacity:.85}
+.result-bolt .bolt-tip circle{fill:#ffffff;filter:drop-shadow(0 0 12px #9bdcff)}
+.result-bolt.is-still{animation:none!important;opacity:.95}
+@keyframes boltStrike{
+  0%{opacity:0;transform:translate(-50%,-100%) scaleY(.26) translateY(-46px)}
+  7%{opacity:1;transform:translate(-50%,-100%) scaleY(1) translateY(0)}
+  14%{opacity:.22}
+  22%{opacity:1}
+  30%{opacity:.32}
+  40%{opacity:1}
+  52%{opacity:.48}
+  66%{opacity:.95}
+  82%{opacity:.42}
+  100%{opacity:0;transform:translate(-50%,-100%) scaleY(1.05)}
+}
+.result-flash{
+  background:radial-gradient(66% 62% at 50% 16%,#ffffffee,#c6d4ffaa 25%,#8878ff66 47%,transparent 72%)!important;
+  animation:resultFlash 1.2s ease-out both!important;
+}
+@keyframes resultFlash{
+  0%{opacity:0}
+  6%{opacity:.95}
+  18%{opacity:.2}
+  34%{opacity:.68}
+  52%{opacity:.16}
+  70%{opacity:.4}
+  100%{opacity:0}
+}
+.result-burst{
+  position:absolute;z-index:7;pointer-events:none;
+  width:136px;height:136px;transform:translate(-50%,-50%);border-radius:50%;
+  background:radial-gradient(circle,#ffffff 0%,#e4f7ff 10%,#88d0ff55 34%,transparent 70%);
+  box-shadow:0 0 26px #8fd8ff,0 0 72px #6a5bff;
+  animation:burstPop 1.1s ease-out both;
+}
+.result-burst.is-still{animation:none;opacity:.9}
+@keyframes burstPop{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.15)}
+  10%{opacity:1;transform:translate(-50%,-50%) scale(1.16)}
+  22%{opacity:.35;transform:translate(-50%,-50%) scale(.86)}
+  38%{opacity:.9;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(1.5)}
+}
+#result-hand .tile-face.is-struck{animation:tileStruck 1.25s ease-out both}
+@keyframes tileStruck{
+  0%,100%{filter:none;transform:none}
+  6%{filter:brightness(2.8) saturate(.35);transform:translateY(-5px) scale(1.12)}
+  18%{filter:brightness(1.2);transform:translateY(0) scale(1)}
+  30%{filter:brightness(2.1) saturate(.5)}
+  46%{filter:none;transform:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .result-bolt,.result-flash,.result-burst,#result-hand .tile-face.is-struck{animation:none!important}
+  .result-flash{opacity:0}
+  .result-burst{opacity:.9}
+}
+
+/* ---------- 21.7 窄屏收一档 ---------- */
+@media (max-width:900px){
+  .result-bolt{width:96px!important;height:min(52vh,380px)!important}
+  .result-burst{width:130px;height:130px}
+  .remain-tile{width:18px;height:25px;flex-basis:18px;font-size:8px}
+  .remain-tile b{font-size:8px}
+  .remain-clock,.remain-num{font-size:9px}
+  .top-actions .remain-stat{gap:4px;padding:2px 6px 2px 3px}
+}
+
+/* ---------- 21.8 中央读秒：收成参考截图里那个小黑盒 ----------
+   原来「局数 / 轮到谁 / 起手家 / 上一步」挤成一大块，既不像截图，
+   也会和准备层的换桌按钮叠在一起。这里只留读秒 + 底注。 */
+body.table-3d .center-table .center-hud{
+  width:96px!important;min-height:0!important;padding:5px 6px!important;gap:3px!important;
+  border-radius:10px!important;
+  border:2px solid #3b3324!important;
+  background:linear-gradient(160deg,#101b18,#050b09)!important;
+  box-shadow:0 6px 18px #00120ca8,inset 0 0 0 1px #ffffff12!important;
+}
+body.table-3d .center-table .hud-clock{
+  width:74px!important;height:44px!important;border-radius:6px!important;
+  background:linear-gradient(160deg,#0c1c1b,#050d0c)!important;
+  border:1px solid #4a4230!important;box-shadow:inset 0 0 10px #000!important;
+}
+body.table-3d .center-table .hud-clock b{font-size:29px!important;color:#54e2ee!important;text-shadow:0 0 12px #19c9dd!important}
+body.table-3d .center-table .hud-clock small{color:#d8bd83!important;font-size:8px!important}
+body.table-3d .center-table .hud-bet{
+  font-size:9px!important;color:#c9b887!important;letter-spacing:.08em;
+  text-shadow:0 1px 2px #000;
+}
+body.table-3d .center-table .hud-caption,
+body.table-3d .center-table .center-footer,
+body.table-3d .center-table .hud-wind{display:none!important}
+/* 打牌提示不要塞进小黑盒里，浮在盒子上方 */
+body.table-3d .center-table .center-hud .discard-callout{
+  position:absolute!important;left:50%!important;top:-28px!important;transform:translateX(-50%)!important;
+  max-width:180px!important;white-space:nowrap!important;
+}
+/* 准备层出现时读秒退场、静态座位卡压暗，避免和「换桌 / 准备」及四家头像重复 */
+body.table-ready-on .center-table .center-hud{opacity:0!important}
+body.table-ready-on .seat .pcard{opacity:.36}
+/* 侧家竖着的手牌背面：SVG 的斜牌墙已经把「牌」交代清楚了，这里压暗别抢戏 */
+body.table-3d .vertical-back{opacity:.34}
+
+/* 闪电末端：放射星芒，别做成一个规整的蓝圆环 */
+.result-burst{
+  background:radial-gradient(circle,#ffffff 0%,#eafaff 10%,#9adcff66 32%,transparent 68%)!important;
+  box-shadow:0 0 28px #8fd8ff,0 0 78px #6a5bff!important;
+}
+.result-burst:before{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  background:repeating-conic-gradient(from 0deg,#ffffff00 0 12deg,#ffffff88 12deg 14deg,#ffffff00 14deg 24deg);
+  -webkit-mask:radial-gradient(circle,transparent 28%,#000 40%,transparent 72%);
+  mask:radial-gradient(circle,transparent 28%,#000 40%,transparent 72%);
+  animation:burstSpin 1.1s ease-out both;
+}
+@keyframes burstSpin{
+  0%{transform:rotate(0) scale(.4);opacity:0}
+  15%{opacity:.95}
+  100%{transform:rotate(42deg) scale(1.5);opacity:0}
 }

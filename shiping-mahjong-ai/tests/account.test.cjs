@@ -27,6 +27,7 @@ test('computeRound：底注 2000 点炮 1 倍 —— 点炮者付两份，其余
   });
   assert.equal(r.multiplier, 1, '石屏麻将没有庄家，也就没有翻倍');
   assert.equal(r.unit, 2000);
+  assert.deepEqual(r.multiples, [0, 1, 1, 2], '放炮方 2 倍，其余两家各 1 倍');
   assert.deepEqual(r.deltas, [8000, -2000, -2000, -4000], '点炮者 2 份，其余各 1 份');
   assert.equal(r.total, 8000, '赢家实收 = 三家实际扣款之和');
   assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0, '四家总和恒为 0');
@@ -87,13 +88,14 @@ test('computeRound：点炮者余额不足时只扣到 0，赢家拿不到不存
   assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0);
 });
 
-test('computeRound：自摸三家各付 unit×2，赢家收总和', () => {
+test('computeRound：自摸三家各付 3 倍，赢家收总和', () => {
   const r = A.computeRound({
     type: 'self', baseBet: 8000, winnerSeat: 1,
     balances: [100000, 100000, 100000, 100000]
   });
   assert.equal(r.unit, 8000);
-  assert.deepEqual(r.deltas, [-16000, 48000, -16000, -16000]);
+  assert.deepEqual(r.multiples, [3, 0, 3, 3], '自摸：三家各 3 倍，赢家不付');
+  assert.deepEqual(r.deltas, [-24000, 72000, -24000, -24000]);
   assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0);
 });
 
@@ -109,9 +111,9 @@ test('computeRound：自摸时余额不足的人只扣到 0', () => {
     type: 'self', baseBet: 8000, winnerSeat: 0,
     balances: [50000, 5000, 99999, 16000]
   });
-  // 每家应付 16000；1 号位只有 5000
-  assert.deepEqual(r.deltas, [37000, -5000, -16000, -16000]);
-  assert.deepEqual(r.busted, [false, true, false, false]);
+  // 每家应付 24000；1 号位只有 5000，3 号位只有 16000，都只扣到 0
+  assert.deepEqual(r.deltas, [45000, -5000, -24000, -16000]);
+  assert.deepEqual(r.busted, [false, true, false, true]);
   assert.equal(r.deltas.reduce((a, b) => a + b, 0), 0);
 });
 

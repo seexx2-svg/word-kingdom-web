@@ -194,7 +194,7 @@
     </div>
 
     <div class="player-chip" id="home-player" role="button" tabindex="0" aria-label="账号与本机存档，点一下可改昵称">
-      <div class="player-avatar" id="home-avatar">黯</div>
+      <div class="player-avatar avatar-you" id="home-avatar">黯</div>
       <div class="player-meta">
         <div class="player-line">
           <b class="player-name" id="home-nick">小双州黯</b>
@@ -283,7 +283,7 @@
   <header class="hall-top">
     <button class="hall-back" id="hall-back" type="button" aria-label="返回主界面">‹</button>
     <div class="hall-player">
-      <div class="player-avatar small" id="hall-avatar">黯</div>
+      <div class="player-avatar small avatar-you" id="hall-avatar">黯</div>
       <div>
         <b id="hall-nick">小双州黯</b>
         <span class="hall-coins"><svg class="ico"><use href="#i-coin"/></svg><b id="hall-coins">5,000</b></span>
@@ -336,7 +336,12 @@
   <header class="topbar">
     <div class="brand" id="brand" role="button" tabindex="0" title="返回主界面"><div class="brand-mark" id="brand-mark">黯</div><div><b id="brand-title">小双州黯</b><small id="brand-sub">穷人 · 初级场</small></div></div>
     <div class="top-actions">
-      <div class="top-stat remain-stat"><span class="lamp"></span><span id="wall-count">剩牌:83张</span></div>
+      <!-- 右上角「剩牌」小面板：牌图 + 时钟 + 真实剩余张数（照参考截图） -->
+      <div class="top-stat remain-stat" id="remain-stat">
+        <span class="remain-tile" aria-hidden="true"><b>三</b><b>萬</b></span>
+        <span class="remain-clock" id="wall-clock">--:--</span>
+        <span class="remain-num" id="wall-count">剩牌:83张</span>
+      </div>
       <div class="top-stat bankroll-stat" id="bankroll-display">银币 5,000</div>
       <button class="log-toggle" id="log-toggle" type="button" aria-expanded="false" aria-controls="log-panel">日志</button>
       <button class="sound-toggle" id="sound-toggle" type="button" aria-pressed="true">声音 开</button>
@@ -479,6 +484,8 @@
         <div class="table-result-layer hidden" id="result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
           <div class="result-sheet">
             <div class="result-sheet-title" id="result-title">平胡</div>
+            <!-- 牌型、放炮方写在副标题，主标题严格只写「自摸」或「胡牌」 -->
+            <div class="result-sheet-sub" id="result-subtitle"></div>
             <button class="result-sheet-close" id="result-close" type="button" aria-label="关闭">×</button>
             <div class="result-hand-row" id="result-hand"></div>
             <div class="result-players">
